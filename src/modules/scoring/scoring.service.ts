@@ -3,6 +3,13 @@ import { getCachedScore, cacheScore, calculateSkillScore, publishScoreUpdate } f
 import { AppError } from '../../utils/error.util.js';
 import { ExecutionTrackerService } from '../executionTracker/executionTracker.service.js';
 
+const emptyScore = {
+  skillsMatchPercentage: 0,
+  projectQualityScore: 0,
+  activityConsistencyScore: 0,
+  finalScore: 0,
+};
+
 export class ScoringService {
   static async recalculate(userId: string) {
     const [{ data: analyses }, { data: proofs }, consistency] = await Promise.all([
@@ -43,7 +50,14 @@ export class ScoringService {
     if (cached) {
       return cached;
     }
-    return this.recalculate(userId);
+    try {
+      return await this.recalculate(userId);
+    } catch (error) {
+      if (error instanceof AppError && error.code === 'ANALYSIS_NOT_FOUND') {
+        return emptyScore;
+      }
+      throw error;
+    }
   }
 
   static async history(userId: string) {

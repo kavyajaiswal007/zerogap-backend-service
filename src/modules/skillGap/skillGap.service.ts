@@ -5,6 +5,28 @@ import { AppError } from '../../utils/error.util.js';
 import { ExecutionTrackerService } from '../executionTracker/executionTracker.service.js';
 import { JobMarketService } from '../jobMarket/jobMarket.service.js';
 
+function fallbackSkillsForRole(role: string) {
+  const normalized = role.toLowerCase();
+
+  if (normalized.includes('frontend') || normalized.includes('react')) {
+    return ['HTML', 'CSS', 'JavaScript', 'TypeScript', 'React', 'Git', 'REST APIs', 'Testing'];
+  }
+
+  if (normalized.includes('backend') || normalized.includes('node')) {
+    return ['JavaScript', 'TypeScript', 'Node.js', 'Express.js', 'SQL', 'PostgreSQL', 'Git', 'APIs'];
+  }
+
+  if (normalized.includes('data') || normalized.includes('analyst')) {
+    return ['Python', 'SQL', 'Statistics', 'Excel', 'Data Visualization', 'Pandas', 'Dashboards', 'Communication'];
+  }
+
+  if (normalized.includes('ai') || normalized.includes('ml') || normalized.includes('machine')) {
+    return ['Python', 'Machine Learning', 'Statistics', 'SQL', 'Data Cleaning', 'Model Evaluation', 'Git', 'APIs'];
+  }
+
+  return ['Problem Solving', 'Git', 'JavaScript', 'SQL', 'Communication', 'APIs', 'Testing', 'Deployment'];
+}
+
 export class SkillGapService {
   static async getMarketSkills(role: string) {
     let { data: matrix, error } = await supabaseAdmin
@@ -16,8 +38,19 @@ export class SkillGapService {
     if (error) throw new AppError(error.message, 500, 'DB_ERROR');
 
     if (!matrix?.length) {
-      const market = await JobMarketService.refreshRole(role);
-      const skills = market.cache.top_skills ?? [];
+      let skills: string[] = [];
+
+      try {
+        const market = await JobMarketService.refreshRole(role);
+        skills = market.cache.top_skills ?? [];
+      } catch {
+        skills = [];
+      }
+
+      if (!skills.length) {
+        skills = fallbackSkillsForRole(role);
+      }
+
       if (skills.length) {
         await supabaseAdmin.from('skill_matrix').upsert(
           skills.map((skill: string) => ({

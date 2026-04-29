@@ -10,6 +10,30 @@ function percentile(sortedScores: number[], current: number) {
 }
 
 export class PeerBenchmarkService {
+  static async pendingBenchmark(userId: string) {
+    const [profile, targetRole] = await Promise.all([
+      getProfileOrThrow(userId),
+      getActiveTargetRole(userId),
+    ]);
+
+    return {
+      id: `pending-${userId}`,
+      user_id: userId,
+      target_role: targetRole?.job_title ?? 'Target role',
+      college_name: profile.college_name,
+      college_percentile: 0,
+      branch_percentile: 0,
+      national_percentile: 0,
+      avg_college_score: 0,
+      avg_national_score: 0,
+      ranking_data: {
+        total_role_users: 0,
+        total_college_users: 0,
+      },
+      calculated_at: new Date().toISOString(),
+    };
+  }
+
   static async recalculate(userId: string) {
     const [profile, targetRole, analysis] = await Promise.all([
       getProfileOrThrow(userId),
@@ -74,6 +98,15 @@ export class PeerBenchmarkService {
 
   static async getMine(userId: string) {
     const { data } = await supabaseAdmin.from('peer_benchmarks').select('*').eq('user_id', userId).order('calculated_at', { ascending: false }).limit(1).maybeSingle();
-    return data ?? this.recalculate(userId);
+    if (data) return data;
+
+    try {
+      return await this.recalculate(userId);
+    } catch (error) {
+      if (error instanceof AppError && error.code === 'BENCHMARK_DATA_MISSING') {
+        return this.pendingBenchmark(userId);
+      }
+      throw error;
+    }
   }
 }

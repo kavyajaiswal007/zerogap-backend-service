@@ -16,7 +16,22 @@ export class FailurePredictionService {
       ExecutionTrackerService.getConsistency(userId),
     ]);
 
-    if (!analysis) throw new AppError('Skill analysis required before prediction', 404, 'ANALYSIS_REQUIRED');
+    if (!analysis) {
+      return {
+        id: `pending-${userId}`,
+        user_id: userId,
+        risk_level: 'medium' as const,
+        ready_in_months: 0,
+        risk_factors: ['Skill analysis is still being prepared'],
+        action_suggestions: [
+          'Complete your first skill analysis from the dashboard.',
+          'Add your strongest current skills to improve the first score.',
+          'Start one roadmap task to build early proof of work.',
+        ],
+        success_probability: 0,
+        predicted_at: new Date().toISOString(),
+      };
+    }
 
     const missingSkills = (analysis.missing_skills ?? []).length;
     const score = Number(analysis.skill_score ?? 0);
