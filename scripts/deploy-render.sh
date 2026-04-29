@@ -5,20 +5,30 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+RENDER_PLAN="free"
+
+if [[ "$RENDER_PLAN" != "free" ]]; then
+  echo "Refusing to deploy: Render plan must be free to avoid charges." >&2
+  exit 1
+fi
+
 set -a
 source .env
 set +a
 
 render workspace set tea-d74d6tm3jp1c7390u5ug >/dev/null
 
+echo "Creating Render service on the free plan. Do not change the plan in Render UI to a paid instance."
+
 render services create \
   --name zerogap-backend-service \
   --type web_service \
+  --plan "$RENDER_PLAN" \
   --repo https://github.com/kavyajaiswal007/zerogap-backend-service \
   --branch main \
   --runtime node \
   --region singapore \
-  --build-command "npm ci && npm run build" \
+  --build-command "npm ci --include=dev && npm run build" \
   --start-command "npm start" \
   --health-check-path /health \
   --env-var "NODE_ENV=production" \

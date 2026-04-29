@@ -16,6 +16,16 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.54.0",
     "@supabase/supabase-js": "^2.56.0",
+    "@types/cookie-parser": "^1.4.10",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/morgan": "^1.9.10",
+    "@types/multer": "^2.1.0",
+    "@types/node": "^25.6.0",
+    "@types/pdfkit": "^0.17.6",
+    "@types/swagger-jsdoc": "^6.0.4",
+    "@types/swagger-ui-express": "^4.1.8",
     "axios": "^1.9.0",
     "bullmq": "^5.53.2",
     "cookie-parser": "^1.4.7",
@@ -39,16 +49,6 @@
     "zod": "^3.25.67"
   },
   "devDependencies": {
-    "@types/cookie-parser": "^1.4.9",
-    "@types/cors": "^2.8.18",
-    "@types/express": "^5.0.3",
-    "@types/jsonwebtoken": "^9.0.10",
-    "@types/morgan": "^1.9.10",
-    "@types/multer": "^2.0.0",
-    "@types/node": "^24.0.10",
-    "@types/pdfkit": "^0.17.3",
-    "@types/swagger-jsdoc": "^6.0.4",
-    "@types/swagger-ui-express": "^4.1.8",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3"
   }
