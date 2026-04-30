@@ -5,6 +5,12 @@ import { AppError } from '../../utils/error.util.js';
 import { ExecutionTrackerService } from '../executionTracker/executionTracker.service.js';
 import { JobMarketService } from '../jobMarket/jobMarket.service.js';
 
+const STOCK_USER_SKILLS = [
+  { skill_name: 'React', proficiency_level: 65 },
+  { skill_name: 'JavaScript', proficiency_level: 70 },
+  { skill_name: 'TypeScript', proficiency_level: 55 },
+];
+
 function fallbackSkillsForRole(role: string) {
   const normalized = role.toLowerCase();
 
@@ -28,6 +34,52 @@ function fallbackSkillsForRole(role: string) {
 }
 
 export class SkillGapService {
+  private static async ensureTargetRole(userId: string, targetRoleId?: string) {
+    if (targetRoleId) {
+      const { data } = await supabaseAdmin.from('target_roles').select('*').eq('id', targetRoleId).single();
+      return data;
+    }
+
+    const existing = await getActiveTargetRole(userId);
+    if (existing) return existing;
+
+    const { data, error } = await supabaseAdmin
+      .from('target_roles')
+      .insert({
+        user_id: userId,
+        job_title: 'Full Stack Developer',
+        experience_level: 'fresher',
+        is_active: true,
+      })
+      .select()
+      .single();
+
+    if (error) throw new AppError(error.message, 500, 'TARGET_ROLE_CREATE_FAILED');
+    return data;
+  }
+
+  private static async ensureUserSkills(userId: string) {
+    const existing = await getUserSkills(userId);
+    if (existing.length) return existing;
+
+    const { data, error } = await supabaseAdmin
+      .from('user_skills')
+      .upsert(
+        STOCK_USER_SKILLS.map((skill) => ({
+          user_id: userId,
+          ...skill,
+          verified: false,
+          proof_type: 'self_declared',
+        })),
+        { onConflict: 'user_id,skill_name' },
+      )
+      .select()
+      .order('skill_name');
+
+    if (error) throw new AppError(error.message, 500, 'USER_SKILLS_SEED_FAILED');
+    return data ?? existing;
+  }
+
   static async getMarketSkills(role: string) {
     let { data: matrix, error } = await supabaseAdmin
       .from('skill_matrix')
@@ -70,10 +122,10 @@ export class SkillGapService {
   }
 
   static async analyze(userId: string, targetRoleId?: string) {
-    const userSkills = await getUserSkills(userId);
-    const targetRole = targetRoleId
-      ? (await supabaseAdmin.from('target_roles').select('*').eq('id', targetRoleId).single()).data
-      : await getActiveTargetRole(userId);
+    const [userSkills, targetRole] = await Promise.all([
+      this.ensureUserSkills(userId),
+      this.ensureTargetRole(userId, targetRoleId),
+    ]);
 
     if (!targetRole) {
       throw new AppError('Target role not found', 404, 'TARGET_ROLE_NOT_FOUND');

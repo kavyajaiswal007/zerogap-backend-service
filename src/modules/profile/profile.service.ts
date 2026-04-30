@@ -74,18 +74,18 @@ export const onboardingSchema = z.object({
     job_title: stockText('Full Stack Developer', 2),
     specialization: optionalText,
     experience_level: z.enum(['fresher', 'junior', 'mid', 'senior']).default('fresher'),
-  }),
+  }).default({ job_title: 'Full Stack Developer', experience_level: 'fresher' }),
   skills: z.array(z.object({
     skill_name: stockText('React', 2),
     proficiency_level: z.preprocess((value) => {
       const next = Number(value);
       return Number.isFinite(next) ? Math.min(100, Math.max(0, Math.round(next))) : 60;
     }, z.number().int().min(0).max(100)),
-  })).default([]).catch(STOCK_SKILLS),
+  })).default(STOCK_SKILLS).catch(STOCK_SKILLS),
 });
 
 export const skillSchema = z.object({
-  skill_name: z.string().min(2),
+  skill_name: stockText('React', 2),
   proficiency_level: z.number().int().min(0).max(100).default(50),
   verified: z.boolean().default(false),
   proof_type: z.enum(['github', 'certificate', 'project', 'self_declared']).default('self_declared'),
@@ -93,7 +93,7 @@ export const skillSchema = z.object({
 });
 
 export const certificateSchema = z.object({
-  title: z.string().min(2),
+  title: stockText('ZeroGap Practice Certificate', 2),
   issuer: z.string().optional(),
   issue_date: z.string().optional(),
   expiry_date: z.string().optional(),
@@ -147,11 +147,7 @@ export class ProfileService {
       onboarding_completed: true,
     };
 
-    if (payload.profile) {
-      await this.updateProfile(userId, profilePayload as any);
-    } else {
-      await this.updateProfile(userId, profilePayload as any);
-    }
+    await this.updateProfile(userId, profilePayload as any);
 
     await supabaseAdmin
       .from('target_roles')

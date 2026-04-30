@@ -70,15 +70,32 @@ const defaultRoadmap = (role = 'Software Engineer'): RoadmapPayload => ({
 });
 
 export class RoadmapService {
+  private static async ensureTargetRole(userId: string) {
+    const existing = await getActiveTargetRole(userId);
+    if (existing) return existing;
+
+    const { data, error } = await supabaseAdmin
+      .from('target_roles')
+      .insert({
+        user_id: userId,
+        job_title: 'Full Stack Developer',
+        experience_level: 'fresher',
+        is_active: true,
+      })
+      .select()
+      .single();
+
+    if (error) throw new AppError(error.message, 500, 'TARGET_ROLE_CREATE_FAILED');
+    return data;
+  }
+
   static async generate(userId: string) {
     const [profile, targetRole, skills, analysis] = await Promise.all([
       getProfileOrThrow(userId),
-      getActiveTargetRole(userId),
+      this.ensureTargetRole(userId),
       getUserSkills(userId),
       getLatestSkillGapAnalysis(userId),
     ]);
-
-    if (!targetRole) throw new AppError('No active target role found', 404, 'TARGET_ROLE_NOT_FOUND');
 
     const fallback = defaultRoadmap(targetRole.job_title);
     const roadmap = await getClaudeJson<RoadmapPayload>(
