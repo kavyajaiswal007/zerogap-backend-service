@@ -44,6 +44,12 @@ interface TargetRoleRow {
   job_title: string;
 }
 
+interface SalaryEstimate {
+  range: string;
+  min: number;
+  max: number;
+}
+
 const CACHE_STALE_MS = 6 * 60 * 60 * 1000;
 const DEFAULT_ROLE = 'Full Stack Developer';
 
@@ -198,6 +204,60 @@ function defaultSkillsForRole(role: string) {
   return ['React', 'Node.js', 'JavaScript', 'TypeScript', 'SQL', 'Git'];
 }
 
+function estimateSalaryForRole(role: string, raw: any): SalaryEstimate {
+  const text = `${role} ${raw.title ?? raw.job_title ?? ''} ${raw.job_type ?? raw.job_employment_type ?? ''}`.toLowerCase();
+  let min = 4;
+  let max = 10;
+
+  if (text.includes('intern')) {
+    min = 1.2;
+    max = 4;
+  } else if (text.includes('data') || text.includes('machine learning') || text.includes('ml engineer')) {
+    min = 6;
+    max = 16;
+  } else if (text.includes('devops') || text.includes('cloud') || text.includes('sre')) {
+    min = 7;
+    max = 18;
+  } else if (text.includes('backend')) {
+    min = 5;
+    max = 14;
+  } else if (text.includes('frontend')) {
+    min = 4;
+    max = 12;
+  } else if (text.includes('full stack') || text.includes('fullstack') || text.includes('sde')) {
+    min = 5;
+    max = 15;
+  } else if (text.includes('android') || text.includes('ios') || text.includes('mobile')) {
+    min = 5;
+    max = 13;
+  }
+
+  if (text.includes('senior') || text.includes('lead') || text.includes('staff')) {
+    min += 8;
+    max += 16;
+  } else if (text.includes('sde 2') || text.includes('mid') || text.includes('3+') || text.includes('4+')) {
+    min += 4;
+    max += 8;
+  } else if (text.includes('fresher') || text.includes('junior') || text.includes('entry')) {
+    min = Math.max(2.5, min - 1);
+    max = Math.max(min + 3, max - 4);
+  }
+
+  if (raw.is_remote || raw.job_is_remote) {
+    min += 1;
+    max += 2;
+  }
+
+  min = Math.round(min * 10) / 10;
+  max = Math.round(max * 10) / 10;
+
+  return {
+    range: `Est. ₹${min}-${max} LPA`,
+    min,
+    max,
+  };
+}
+
 function extractSkillsFromDescription(description: string, role: string): string[] {
   const lower = description.toLowerCase();
   const detected = SKILL_KEYWORDS.filter((skill) => lower.includes(skill.toLowerCase())).slice(0, 12);
@@ -205,6 +265,8 @@ function extractSkillsFromDescription(description: string, role: string): string
 }
 
 function normalizeJobListing(raw: any, role = DEFAULT_ROLE): JobListing {
+  const salaryEstimate = estimateSalaryForRole(role, raw);
+
   return {
     id: raw.id,
     external_id: String(raw.external_id ?? raw.job_id ?? `${raw.title ?? raw.job_title}-${raw.company ?? raw.employer_name}-${raw.location ?? raw.job_city}`),
@@ -216,9 +278,9 @@ function normalizeJobListing(raw: any, role = DEFAULT_ROLE): JobListing {
       ? normalizeStringArray(raw.skills_required).slice(0, 12)
       : extractSkillsFromDescription(`${raw.title ?? raw.job_title ?? ''}\n${raw.description ?? raw.job_description ?? ''}`, role),
     apply_url: raw.apply_url ?? raw.job_apply_link ?? raw.job_google_link ?? null,
-    salary_range: cleanSalaryRange(raw.salary_range) ?? formatSalaryRange(raw),
-    salary_lpa_min: positiveNumber(raw.salary_lpa_min) ?? normalizeSalaryMin(raw),
-    salary_lpa_max: positiveNumber(raw.salary_lpa_max) ?? normalizeSalaryMax(raw),
+    salary_range: cleanSalaryRange(raw.salary_range) ?? formatSalaryRange(raw) ?? salaryEstimate.range,
+    salary_lpa_min: positiveNumber(raw.salary_lpa_min) ?? normalizeSalaryMin(raw) ?? salaryEstimate.min,
+    salary_lpa_max: positiveNumber(raw.salary_lpa_max) ?? normalizeSalaryMax(raw) ?? salaryEstimate.max,
     source: raw.source ?? 'jsearch',
     is_active: raw.is_active ?? true,
     posted_at: raw.posted_at ?? raw.job_posted_at_datetime_utc ?? new Date().toISOString(),
