@@ -1,64 +1,541 @@
+import axios from 'axios';
+import { env } from '../../config/env.js';
 import { supabaseAdmin } from '../../config/supabase.js';
-import { getActiveTargetRole, getUserSkills } from '../../utils/db.util.js';
 import { AppError } from '../../utils/error.util.js';
-import { JobMarketService } from '../jobMarket/jobMarket.service.js';
+import { logger } from '../../utils/logger.util.js';
+
+interface JobHighlights {
+  Responsibilities?: string[];
+  Qualifications?: string[];
+  Benefits?: string[];
+  [key: string]: string[] | undefined;
+}
+
+interface JobListing {
+  id?: string;
+  external_id: string;
+  title: string;
+  company: string | null;
+  location: string | null;
+  description: string | null;
+  skills_required: string[];
+  apply_url: string | null;
+  salary_range: string | null;
+  salary_lpa_min: number | null;
+  salary_lpa_max: number | null;
+  source: string | null;
+  is_active: boolean;
+  posted_at: string | null;
+  fetched_at: string;
+  job_type: string | null;
+  experience_required: string | null;
+  is_remote: boolean;
+  company_logo: string | null;
+  highlights: JobHighlights;
+  qualifications: string | null;
+}
+
+interface UserSkillRow {
+  skill_name: string;
+  proficiency_level: number | null;
+}
+
+interface TargetRoleRow {
+  job_title: string;
+}
+
+const CACHE_STALE_MS = 6 * 60 * 60 * 1000;
+const DEFAULT_ROLE = 'Full Stack Developer';
+
+const SKILL_KEYWORDS = [
+  'React',
+  'Vue',
+  'Angular',
+  'Next.js',
+  'TypeScript',
+  'JavaScript',
+  'Python',
+  'Java',
+  'Node.js',
+  'Express',
+  'Django',
+  'FastAPI',
+  'Spring Boot',
+  'PostgreSQL',
+  'MySQL',
+  'MongoDB',
+  'Redis',
+  'Docker',
+  'Kubernetes',
+  'AWS',
+  'GCP',
+  'Azure',
+  'Git',
+  'REST API',
+  'GraphQL',
+  'Flutter',
+  'React Native',
+  'Swift',
+  'Kotlin',
+  'Android',
+  'iOS',
+  'Machine Learning',
+  'TensorFlow',
+  'PyTorch',
+  'SQL',
+  'Linux',
+  'CI/CD',
+  'Jenkins',
+  'GitHub Actions',
+  'Figma',
+  'Tailwind CSS',
+  'CSS',
+  'HTML',
+  'PHP',
+  'Laravel',
+  'Go',
+  'Rust',
+  'C++',
+  'C#',
+  '.NET',
+  'Selenium',
+  'Jest',
+  'Cypress',
+  'Power BI',
+  'Tableau',
+  'Excel',
+  'Pandas',
+  'NumPy',
+  'Scikit-learn',
+  'OpenAI',
+];
+
+function normalizeStringArray(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
+}
+
+function normalizeHighlights(value: unknown): JobHighlights {
+  if (!value || typeof value !== 'object') return {};
+  const source = value as Record<string, unknown>;
+  return {
+    Responsibilities: normalizeStringArray(source.Responsibilities).slice(0, 8),
+    Qualifications: normalizeStringArray(source.Qualifications).slice(0, 8),
+    Benefits: normalizeStringArray(source.Benefits).slice(0, 6),
+  };
+}
+
+function formatSalaryRange(job: any): string | null {
+  const min = Number(job.job_min_salary);
+  const max = Number(job.job_max_salary);
+  const currency = job.job_salary_currency;
+  const period = job.job_salary_period;
+
+  if (!Number.isFinite(min) && !Number.isFinite(max)) return null;
+
+  if (currency === 'INR') {
+    const minLpa = Number.isFinite(min) ? (period === 'MONTH' ? (min * 12) / 100000 : min / 100000) : null;
+    const maxLpa = Number.isFinite(max) ? (period === 'MONTH' ? (max * 12) / 100000 : max / 100000) : null;
+    if (minLpa && maxLpa) return `₹${minLpa.toFixed(1)}-${maxLpa.toFixed(1)} LPA`;
+    if (maxLpa) return `Up to ₹${maxLpa.toFixed(1)} LPA`;
+    if (minLpa) return `₹${minLpa.toFixed(1)}+ LPA`;
+  }
+
+  if (currency === 'USD') {
+    const minLpa = Number.isFinite(min) ? (min * 83 * (period === 'MONTH' ? 12 : 1)) / 100000 : null;
+    const maxLpa = Number.isFinite(max) ? (max * 83 * (period === 'MONTH' ? 12 : 1)) / 100000 : null;
+    if (minLpa && maxLpa) return `₹${minLpa.toFixed(0)}-${maxLpa.toFixed(0)} LPA`;
+    if (maxLpa) return `Up to ₹${maxLpa.toFixed(0)} LPA`;
+    if (minLpa) return `₹${minLpa.toFixed(0)}+ LPA`;
+  }
+
+  if (Number.isFinite(min) && Number.isFinite(max)) {
+    return `${currency ?? ''} ${min.toLocaleString()}-${max.toLocaleString()}${period ? ` (${period})` : ''}`.trim();
+  }
+  return null;
+}
+
+function normalizeSalaryMin(job: any): number | null {
+  const min = Number(job.job_min_salary);
+  if (!Number.isFinite(min)) return null;
+  const multiplier = job.job_salary_period === 'MONTH' ? 12 : 1;
+  if (job.job_salary_currency === 'INR') return Math.round((min * multiplier) / 100000 * 10) / 10;
+  if (job.job_salary_currency === 'USD') return Math.round((min * 83 * multiplier) / 100000);
+  return null;
+}
+
+function normalizeSalaryMax(job: any): number | null {
+  const max = Number(job.job_max_salary);
+  if (!Number.isFinite(max)) return null;
+  const multiplier = job.job_salary_period === 'MONTH' ? 12 : 1;
+  if (job.job_salary_currency === 'INR') return Math.round((max * multiplier) / 100000 * 10) / 10;
+  if (job.job_salary_currency === 'USD') return Math.round((max * 83 * multiplier) / 100000);
+  return null;
+}
+
+function defaultSkillsForRole(role: string) {
+  const lower = role.toLowerCase();
+  if (lower.includes('frontend')) return ['React', 'JavaScript', 'TypeScript', 'CSS', 'HTML', 'Git'];
+  if (lower.includes('backend')) return ['Node.js', 'Express', 'PostgreSQL', 'REST API', 'Git', 'Docker'];
+  if (lower.includes('data')) return ['Python', 'SQL', 'Pandas', 'NumPy', 'Machine Learning', 'Excel'];
+  if (lower.includes('devops')) return ['Docker', 'Kubernetes', 'Linux', 'AWS', 'CI/CD', 'Git'];
+  if (lower.includes('android')) return ['Kotlin', 'Android', 'Java', 'REST API', 'Git'];
+  return ['React', 'Node.js', 'JavaScript', 'TypeScript', 'SQL', 'Git'];
+}
+
+function extractSkillsFromDescription(description: string, role: string): string[] {
+  const lower = description.toLowerCase();
+  const detected = SKILL_KEYWORDS.filter((skill) => lower.includes(skill.toLowerCase())).slice(0, 12);
+  return detected.length ? detected : defaultSkillsForRole(role);
+}
+
+function normalizeJobListing(raw: any, role = DEFAULT_ROLE): JobListing {
+  return {
+    id: raw.id,
+    external_id: String(raw.external_id ?? raw.job_id ?? `${raw.title ?? raw.job_title}-${raw.company ?? raw.employer_name}-${raw.location ?? raw.job_city}`),
+    title: String(raw.title ?? raw.job_title ?? role),
+    company: raw.company ?? raw.employer_name ?? null,
+    location: raw.location ?? (raw.job_city ? `${raw.job_city}, ${raw.job_state ?? raw.job_country ?? 'India'}` : raw.job_country ?? 'India'),
+    description: typeof raw.description === 'string' ? raw.description.slice(0, 2000) : raw.job_description?.slice(0, 2000) ?? null,
+    skills_required: normalizeStringArray(raw.skills_required).length
+      ? normalizeStringArray(raw.skills_required).slice(0, 12)
+      : extractSkillsFromDescription(`${raw.title ?? raw.job_title ?? ''}\n${raw.description ?? raw.job_description ?? ''}`, role),
+    apply_url: raw.apply_url ?? raw.job_apply_link ?? raw.job_google_link ?? null,
+    salary_range: raw.salary_range ?? formatSalaryRange(raw),
+    salary_lpa_min: raw.salary_lpa_min ?? normalizeSalaryMin(raw),
+    salary_lpa_max: raw.salary_lpa_max ?? normalizeSalaryMax(raw),
+    source: raw.source ?? 'jsearch',
+    is_active: raw.is_active ?? true,
+    posted_at: raw.posted_at ?? raw.job_posted_at_datetime_utc ?? new Date().toISOString(),
+    fetched_at: raw.fetched_at ?? new Date().toISOString(),
+    job_type: raw.job_type ?? raw.job_employment_type ?? 'Full-time',
+    experience_required: raw.experience_required
+      ?? (raw.job_required_experience?.required_experience_in_months
+        ? `${Math.max(0, Math.round(raw.job_required_experience.required_experience_in_months / 12))} years`
+        : 'Fresher/0-2 years'),
+    is_remote: Boolean(raw.is_remote ?? raw.job_is_remote ?? false),
+    company_logo: raw.company_logo ?? raw.employer_logo ?? null,
+    highlights: normalizeHighlights(raw.highlights ?? raw.job_highlights),
+    qualifications: raw.qualifications ?? (Array.isArray(raw.job_required_qualifications) ? raw.job_required_qualifications.join(', ') : null),
+  };
+}
+
+function toDbRow(job: JobListing, includeEnrichedFields: boolean) {
+  const base = {
+    external_id: job.external_id,
+    title: job.title,
+    company: job.company,
+    location: job.location,
+    salary_range: job.salary_range,
+    salary_lpa_min: job.salary_lpa_min,
+    salary_lpa_max: job.salary_lpa_max,
+    skills_required: job.skills_required,
+    description: job.description,
+    apply_url: job.apply_url,
+    source: job.source,
+    is_active: job.is_active,
+    posted_at: job.posted_at,
+    fetched_at: job.fetched_at,
+  };
+
+  if (!includeEnrichedFields) return base;
+
+  return {
+    ...base,
+    job_type: job.job_type,
+    experience_required: job.experience_required,
+    is_remote: job.is_remote,
+    company_logo: job.company_logo,
+    qualifications: job.qualifications,
+    highlights: job.highlights,
+  };
+}
+
+async function upsertJobListings(jobs: JobListing[]) {
+  const rows = jobs.map((job) => toDbRow(job, true));
+  const enrichedResult = await supabaseAdmin
+    .from('job_listings')
+    .upsert(rows, { onConflict: 'external_id' });
+
+  if (!enrichedResult.error) return;
+
+  logger.warn({
+    message: 'Enriched job upsert failed, retrying with base job columns',
+    error: enrichedResult.error.message,
+  });
+
+  const fallbackRows = jobs.map((job) => toDbRow(job, false));
+  const fallbackResult = await supabaseAdmin
+    .from('job_listings')
+    .upsert(fallbackRows, { onConflict: 'external_id' });
+
+  if (fallbackResult.error) {
+    logger.warn({
+      message: 'Base job upsert failed',
+      error: fallbackResult.error.message,
+    });
+  }
+}
+
+async function hydratePersistedIds(jobs: JobListing[]) {
+  const externalIds = jobs.map((job) => job.external_id).filter(Boolean);
+  if (!externalIds.length) return jobs;
+
+  const { data, error } = await supabaseAdmin
+    .from('job_listings')
+    .select('*')
+    .in('external_id', externalIds);
+
+  if (error) {
+    logger.warn({
+      message: 'Unable to hydrate persisted job listing IDs',
+      error: error.message,
+    });
+    return jobs;
+  }
+
+  const dbByExternalId = new Map((data ?? []).map((row: any) => [String(row.external_id), row]));
+  return jobs.map((job) => {
+    const persisted = dbByExternalId.get(job.external_id);
+    return persisted
+      ? { ...job, id: persisted.id ?? job.id }
+      : job;
+  });
+}
+
+async function fetchFromJSearch(role: string): Promise<JobListing[]> {
+  const queries = [
+    `${role} jobs India`,
+    `${role} remote India`,
+    `${role} fresher India`,
+  ];
+
+  const allJobs: JobListing[] = [];
+
+  for (const query of queries) {
+    try {
+      const response = await axios.get('https://jsearch.p.rapidapi.com/search', {
+        params: {
+          query,
+          page: '1',
+          num_pages: '2',
+          date_posted: 'month',
+          country: 'in',
+          language: 'en',
+        },
+        headers: {
+          'x-rapidapi-key': env.RAPIDAPI_KEY,
+          'x-rapidapi-host': 'jsearch.p.rapidapi.com',
+        },
+        timeout: 8000,
+      });
+
+      const jobs = (response.data?.data ?? []).map((job: any) => normalizeJobListing(job, role));
+      allJobs.push(...jobs);
+    } catch (error) {
+      logger.warn({
+        message: 'JSearch query failed',
+        query,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  const unique = Array.from(
+    new Map(allJobs.map((job) => [job.external_id, job])).values(),
+  ).slice(0, 75);
+
+  if (unique.length > 0) {
+    await upsertJobListings(unique);
+    return hydratePersistedIds(unique);
+  }
+
+  return [];
+}
+
+async function getOrFetchJobs(jobTitle: string, forceRefresh = false): Promise<JobListing[]> {
+  const staleCutoff = new Date(Date.now() - CACHE_STALE_MS).toISOString();
+
+  if (!forceRefresh) {
+    const { data: cached, error } = await supabaseAdmin
+      .from('job_listings')
+      .select('*')
+      .ilike('title', `%${jobTitle}%`)
+      .eq('is_active', true)
+      .gte('fetched_at', staleCutoff)
+      .order('fetched_at', { ascending: false })
+      .limit(60);
+
+    if (!error && cached && cached.length >= 10) {
+      return cached.map((job) => normalizeJobListing(job, jobTitle));
+    }
+
+    if (error) {
+      logger.warn({
+        message: 'Fresh job cache lookup failed',
+        error: error.message,
+      });
+    }
+  }
+
+  const fresh = await fetchFromJSearch(jobTitle);
+  if (fresh.length) return fresh;
+
+  const { data: fallback, error: fallbackError } = await supabaseAdmin
+    .from('job_listings')
+    .select('*')
+    .eq('is_active', true)
+    .ilike('title', `%${jobTitle}%`)
+    .order('fetched_at', { ascending: false })
+    .limit(60);
+
+  if (fallbackError) {
+    logger.warn({
+      message: 'Fallback job cache lookup failed',
+      error: fallbackError.message,
+    });
+    return [];
+  }
+
+  return (fallback ?? []).map((job) => normalizeJobListing(job, jobTitle));
+}
+
+function generateMatchReason(fitPct: number, matchedSkills: string[], role: string): string {
+  if (fitPct >= 80) return `Strong match - ${matchedSkills.slice(0, 2).join(', ') || role} align well`;
+  if (fitPct >= 60) return `Good fit - ${matchedSkills[0] ?? role} experience valued`;
+  if (fitPct >= 40) return `Stretch role - learn ${Math.max(1, 5 - matchedSkills.length)} more skills to qualify`;
+  return `Growth opportunity - ${role} trajectory fits`;
+}
+
+function sortMatches<T extends { fit_percentage: number; job_listings: JobListing }>(matches: T[]) {
+  return [...matches].sort((a, b) => {
+    if (b.fit_percentage !== a.fit_percentage) return b.fit_percentage - a.fit_percentage;
+    const salaryB = b.job_listings.salary_lpa_max ?? 0;
+    const salaryA = a.job_listings.salary_lpa_max ?? 0;
+    return salaryB - salaryA;
+  });
+}
 
 export class HireMeService {
   static async recalculateMatches(userId: string) {
-    const targetRole = await getActiveTargetRole(userId);
-    if (!targetRole) throw new AppError('Target role missing', 404, 'TARGET_ROLE_NOT_FOUND');
-    const [skills, listingResult] = await Promise.all([
-      getUserSkills(userId),
-      supabaseAdmin.from('job_listings').select('*').eq('is_active', true).ilike('title', `%${targetRole.job_title}%`).limit(50),
-    ]);
-
-    let listings = listingResult.data ?? [];
-    if (!listings.length) {
-      await JobMarketService.refreshRole(targetRole.job_title);
-      const refreshed = await supabaseAdmin.from('job_listings').select('*').eq('is_active', true).ilike('title', `%${targetRole.job_title}%`).limit(50);
-      listings = refreshed.data ?? [];
-    }
-
-    const skillNames = new Set(skills.map((skill) => skill.skill_name.toLowerCase()));
-    const matches = [];
-
-    for (const listing of listings) {
-      const required = (listing.skills_required ?? []) as string[];
-      const matched = required.filter((skill) => skillNames.has(skill.toLowerCase()));
-      const fit = required.length ? Number(((matched.length / required.length) * 100).toFixed(2)) : 0;
-      const missingSkills = required.filter((skill) => !skillNames.has(skill.toLowerCase()));
-
-      matches.push({
-        user_id: userId,
-        job_listing_id: listing.id,
-        fit_percentage: fit,
-        missing_skills: missingSkills,
-        next_steps: missingSkills.slice(0, 3).map((skill) => `Practice ${skill} with one portfolio-quality project.`),
-        match_reason: `${matched.length} required skills already overlap with the role.`,
-      });
-    }
-
-    if (matches.length) {
-      await supabaseAdmin.from('user_job_matches').upsert(matches, { onConflict: 'user_id,job_listing_id' });
-    }
-
-    return this.getMatches(userId);
+    return this.getTopMatches(userId, 50, true);
   }
 
   static async getMatches(userId: string) {
+    return this.getTopMatches(userId, 50);
+  }
+
+  static async getTopMatches(userId: string, limit = 50, forceRefresh = false) {
+    const [{ data: userSkills, error: skillsError }, { data: targetRole }] = await Promise.all([
+      supabaseAdmin
+        .from('user_skills')
+        .select('skill_name, proficiency_level')
+        .eq('user_id', userId),
+      supabaseAdmin
+        .from('target_roles')
+        .select('job_title')
+        .eq('user_id', userId)
+        .eq('is_active', true)
+        .maybeSingle(),
+    ]);
+
+    if (skillsError) throw new AppError(skillsError.message, 500, 'DB_ERROR');
+
+    const role = (targetRole as TargetRoleRow | null)?.job_title ?? DEFAULT_ROLE;
+    const jobs = await getOrFetchJobs(role, forceRefresh);
+    const skillNames = new Set(
+      ((userSkills ?? []) as UserSkillRow[]).map((skill) => skill.skill_name.toLowerCase()),
+    );
+
+    const candidates = jobs.map((job) => {
+      const required = job.skills_required ?? [];
+      const matched = required.filter((skill) => skillNames.has(skill.toLowerCase()));
+      const missing = required.filter((skill) => !skillNames.has(skill.toLowerCase()));
+      const fitPct = required.length > 0 ? Math.round((matched.length / required.length) * 100) : 60;
+      const fitPercentage = Math.min(99, Math.max(20, fitPct));
+
+      return {
+        job,
+        fit_percentage: fitPercentage,
+        missing_skills: missing.slice(0, 5),
+        next_steps: missing.slice(0, 3).map((skill) => `Practice ${skill} with one portfolio-quality project.`),
+        match_reason: generateMatchReason(fitPercentage, matched, role),
+      };
+    });
+
+    const persistable = candidates.filter((match) => match.job.id);
+    if (persistable.length) {
+      const rows = persistable.map((match) => ({
+        user_id: userId,
+        job_listing_id: match.job.id,
+        fit_percentage: match.fit_percentage,
+        missing_skills: match.missing_skills,
+        next_steps: match.next_steps,
+        match_reason: match.match_reason,
+      }));
+
+      const { error } = await supabaseAdmin
+        .from('user_job_matches')
+        .upsert(rows, { onConflict: 'user_id,job_listing_id' });
+
+      if (error) {
+        logger.warn({
+          message: 'Unable to persist hire-me matches',
+          error: error.message,
+        });
+      }
+    }
+
+    const jobIds = persistable.map((match) => match.job.id as string);
+    if (!jobIds.length) {
+      return sortMatches(candidates.map((match) => ({
+        id: `job-${match.job.external_id}`,
+        user_id: userId,
+        job_listing_id: match.job.id ?? match.job.external_id,
+        fit_percentage: match.fit_percentage,
+        missing_skills: match.missing_skills,
+        next_steps: match.next_steps,
+        match_reason: match.match_reason,
+        saved: false,
+        applied: false,
+        created_at: new Date().toISOString(),
+        job_listings: match.job,
+      }))).slice(0, limit);
+    }
+
     const { data, error } = await supabaseAdmin
       .from('user_job_matches')
       .select('*, job_listings(*)')
       .eq('user_id', userId)
-      .order('fit_percentage', { ascending: false })
-      .limit(10);
+      .in('job_listing_id', jobIds);
 
     if (error) throw new AppError(error.message, 500, 'DB_ERROR');
-    return data ?? [];
+
+    const freshJobById = new Map(persistable.map((match) => [match.job.id as string, match.job]));
+    const normalizedMatches = (data ?? []).map((match: any) => {
+      const enrichedJob = freshJobById.get(String(match.job_listing_id));
+      const job = enrichedJob
+        ? { ...normalizeJobListing(match.job_listings ?? {}, role), ...enrichedJob }
+        : normalizeJobListing(match.job_listings ?? {}, role);
+
+      return {
+        ...match,
+        missing_skills: normalizeStringArray(match.missing_skills),
+        next_steps: normalizeStringArray(match.next_steps),
+        job_listings: job,
+      };
+    });
+
+    return sortMatches(normalizedMatches).slice(0, limit);
   }
 
   static async getMatch(userId: string, jobId: string) {
-    const { data, error } = await supabaseAdmin.from('user_job_matches').select('*, job_listings(*)').eq('user_id', userId).eq('job_listing_id', jobId).maybeSingle();
+    const { data, error } = await supabaseAdmin
+      .from('user_job_matches')
+      .select('*, job_listings(*)')
+      .eq('user_id', userId)
+      .eq('job_listing_id', jobId)
+      .maybeSingle();
     if (error) throw new AppError(error.message, 500, 'DB_ERROR');
     return data;
   }
