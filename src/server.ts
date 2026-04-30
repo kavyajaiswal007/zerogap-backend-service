@@ -9,13 +9,21 @@ import './queues/resumeGeneration.queue.js';
 
 const port = Number(env.PORT);
 
-async function bootstrap() {
+async function runStartupTasks() {
   await ensureRedisConnection();
   await AchievementsService.ensureSeeded();
   await scheduleJobScraping();
+}
 
+async function bootstrap() {
   app.listen(port, () => {
     logger.info(`ZeroGap backend listening on port ${port}`);
+    void runStartupTasks().catch((error) => {
+      logger.warn({
+        message: 'Background startup tasks failed',
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
   });
 }
 
