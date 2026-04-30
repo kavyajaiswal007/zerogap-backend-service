@@ -12,11 +12,26 @@ function getBackendBase(req: Request) {
   return `${req.protocol}://${req.get('host')}`;
 }
 
-function buildFrontendCallbackUrl(accessToken: string, refreshToken: string) {
+function buildFrontendCallbackUrl(accessToken: string, refreshToken: string, isNewUser?: boolean) {
   const redirectUrl = new URL('/auth/callback', env.FRONTEND_URL);
   redirectUrl.searchParams.set('access_token', accessToken);
   redirectUrl.searchParams.set('refresh_token', refreshToken);
+  if (typeof isNewUser === 'boolean') {
+    redirectUrl.searchParams.set('is_new_user', String(isNewUser));
+  }
   return redirectUrl.toString();
+}
+
+async function fetchProviderJson<T>(url: string, accessToken: string): Promise<T | null> {
+  if (!accessToken) return null;
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: 'application/json',
+    },
+  });
+  if (!response.ok) return null;
+  return response.json() as Promise<T>;
 }
 
 export class AuthController {
@@ -49,6 +64,7 @@ export class AuthController {
 
   static async refresh(req: Request, res: Response, next: NextFunction) {
     try {
+      res.setHeader('Cache-Control', 'no-store');
       const data = await AuthService.refresh(req.body.refreshToken);
       sendSuccess(res, data, 'Session refreshed');
     } catch (error) {
@@ -96,18 +112,28 @@ export class AuthController {
     try {
       const code = String(req.query.code ?? '');
       const data = await AuthService.exchangeOAuthCode(code);
+      const existingProfile = await supabaseAdmin
+        .from('profiles')
+        .select('id,onboarding_completed')
+        .eq('id', data.user.id)
+        .maybeSingle();
+      const providerToken = String((data.session as any).provider_token ?? '').trim();
+      const githubProfile = await fetchProviderJson<{ login?: string; avatar_url?: string; name?: string }>(
+        'https://api.github.com/user',
+        providerToken,
+      );
       const username = String(
+        githubProfile?.login ??
         data.user.user_metadata.user_name ??
           data.user.user_metadata.preferred_username ??
           '',
       );
-      const providerToken = String((data.session as any).provider_token ?? '').trim();
 
       await supabaseAdmin.from('profiles').upsert({
         id: data.user.id,
         email: data.user.email,
-        full_name: data.user.user_metadata.full_name ?? data.user.user_metadata.name,
-        avatar_url: data.user.user_metadata.avatar_url,
+        full_name: data.user.user_metadata.full_name ?? data.user.user_metadata.name ?? githubProfile?.name,
+        avatar_url: data.user.user_metadata.avatar_url ?? githubProfile?.avatar_url,
         github_username: username || null,
         github_access_token: providerToken || undefined,
       });
@@ -122,7 +148,8 @@ export class AuthController {
         });
       }
 
-      res.redirect(buildFrontendCallbackUrl(data.session.access_token, data.session.refresh_token));
+      const isNewUser = !existingProfile.data?.onboarding_completed;
+      res.redirect(buildFrontendCallbackUrl(data.session.access_token, data.session.refresh_token, isNewUser));
     } catch (error) {
       next(error);
     }
@@ -132,15 +159,28 @@ export class AuthController {
     try {
       const code = String(req.query.code ?? '');
       const data = await AuthService.exchangeOAuthCode(code);
+      const existingProfile = await supabaseAdmin
+        .from('profiles')
+        .select('id,onboarding_completed')
+        .eq('id', data.user.id)
+        .maybeSingle();
+      const providerToken = String((data.session as any).provider_token ?? '').trim();
+      const googleProfile = await fetchProviderJson<{
+        id?: string;
+        email?: string;
+        name?: string;
+        picture?: string;
+      }>('https://www.googleapis.com/oauth2/v2/userinfo', providerToken);
 
       await supabaseAdmin.from('profiles').upsert({
         id: data.user.id,
-        email: data.user.email,
-        full_name: data.user.user_metadata.full_name ?? data.user.user_metadata.name,
-        avatar_url: data.user.user_metadata.avatar_url,
+        email: data.user.email ?? googleProfile?.email,
+        full_name: googleProfile?.name ?? data.user.user_metadata.full_name ?? data.user.user_metadata.name,
+        avatar_url: googleProfile?.picture ?? data.user.user_metadata.avatar_url,
       });
 
-      res.redirect(buildFrontendCallbackUrl(data.session.access_token, data.session.refresh_token));
+      const isNewUser = !existingProfile.data?.onboarding_completed;
+      res.redirect(buildFrontendCallbackUrl(data.session.access_token, data.session.refresh_token, isNewUser));
     } catch (error) {
       next(error);
     }

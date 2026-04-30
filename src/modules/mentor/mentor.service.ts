@@ -1,11 +1,19 @@
 import { supabaseAdmin } from '../../config/supabase.js';
 import { anthropic } from '../../config/anthropic.js';
+import { mentorOpenAI } from '../../config/openai.js';
 import { getClaudeText } from '../../utils/claude.util.js';
 import { getActiveTargetRole, getLatestSkillGapAnalysis, getProfileOrThrow } from '../../utils/db.util.js';
 import { ScoringService } from '../scoring/scoring.service.js';
 import type { Response } from 'express';
+import { logger } from '../../utils/logger.util.js';
 
 type ChatRole = 'user' | 'assistant';
+
+function timeoutAfter(ms: number) {
+  return new Promise<never>((_resolve, reject) => {
+    setTimeout(() => reject(new Error('Mentor AI timed out')), ms);
+  });
+}
 
 export class MentorService {
   static async listSessions(userId: string) {
@@ -109,10 +117,33 @@ You have full context about this student:
 Be specific, data-driven, encouraging. Reference their actual skill gaps. Suggest specific resources.
 When they ask technical questions, answer clearly. When they seem demotivated, be a coach.`;
 
-    const assistantText = await getClaudeText(
-      systemPrompt,
-      `Conversation history:\n${JSON.stringify(history.slice(-20))}\n\nUser: ${message}`,
-    );
+    let assistantText = '';
+
+    try {
+      const completion = await mentorOpenAI.chat.completions.create({
+        model: 'gpt-4o',
+        temperature: 0.7,
+        max_tokens: 600,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          ...history.slice(-20).map((item: any) => ({
+            role: item.role as ChatRole,
+            content: String(item.content ?? ''),
+          })),
+          { role: 'user', content: message },
+        ],
+      });
+      assistantText = completion.choices[0]?.message?.content ?? '';
+    } catch {
+      try {
+        assistantText = await getClaudeText(
+          systemPrompt,
+          `Conversation history:\n${JSON.stringify(history.slice(-20))}\n\nUser: ${message}`,
+        );
+      } catch {
+        assistantText = 'Your next action today: complete one roadmap task, log it in Tracker, and rerun your skill-gap score so your dashboard counters update.';
+      }
+    }
 
     await supabaseAdmin.from('chat_messages').insert({
       session_id: sessionId,
@@ -144,6 +175,7 @@ When they ask technical questions, answer clearly. When they seem demotivated, b
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders?.();
+    res.write(': connected\n\n');
 
     let fullResponse = '';
 
@@ -156,29 +188,56 @@ When they ask technical questions, answer clearly. When they seem demotivated, b
         { role: 'user' as const, content: message },
       ].filter((item) => item.role === 'user' || item.role === 'assistant');
 
-      if (anthropic) {
-        const stream = anthropic.messages.stream({
-          model: 'claude-3-5-sonnet-latest',
-          max_tokens: 1500,
-          system: systemPrompt,
-          messages,
-        });
+      try {
+        const stream = await Promise.race([
+          mentorOpenAI.chat.completions.create({
+            model: 'gpt-4o',
+            temperature: 0.7,
+            max_tokens: 600,
+            stream: true,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              ...messages,
+            ],
+          }),
+          timeoutAfter(8000),
+        ]);
 
         for await (const chunk of stream) {
-          if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
-            const text = chunk.delta.text;
-            fullResponse += text;
-            res.write(`data: ${JSON.stringify({ type: 'delta', text })}\n\n`);
+          const text = chunk.choices[0]?.delta?.content ?? '';
+          if (!text) continue;
+          fullResponse += text;
+          res.write(`data: ${JSON.stringify({ type: 'delta', text, delta: text })}\n\n`);
+        }
+      } catch (openAiError) {
+        logger.warn({
+          message: 'Mentor OpenAI stream failed; trying fallback provider',
+          error: openAiError instanceof Error ? openAiError.message : String(openAiError),
+        });
+
+        if (anthropic) {
+          const stream = anthropic.messages.stream({
+            model: 'claude-3-5-sonnet-latest',
+            max_tokens: 1500,
+            system: systemPrompt,
+            messages,
+          });
+
+          for await (const chunk of stream) {
+            if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
+              const text = chunk.delta.text;
+              fullResponse += text;
+              res.write(`data: ${JSON.stringify({ type: 'delta', text, delta: text })}\n\n`);
+            }
           }
         }
-      } else {
-        const fallbackText = await getClaudeText(
-          systemPrompt,
-          `Conversation history:\n${JSON.stringify(history.slice(-20))}\n\nUser: ${message}`,
-        );
+      }
+
+      if (!fullResponse) {
+        const fallbackText = 'Your next action today: complete one roadmap task, log the output in Tracker, and then rerun your skill-gap analysis. That will update XP, streak, score, and dashboard counters.';
         for (const text of fallbackText.match(/.{1,80}(\s|$)/g) ?? [fallbackText]) {
           fullResponse += text;
-          res.write(`data: ${JSON.stringify({ type: 'delta', text })}\n\n`);
+          res.write(`data: ${JSON.stringify({ type: 'delta', text, delta: text })}\n\n`);
         }
       }
 

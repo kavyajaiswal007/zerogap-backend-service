@@ -3,8 +3,62 @@ import { env } from '../../config/env.js';
 import { AppError } from '../../utils/error.util.js';
 import { getProfileOrThrow } from '../../utils/db.util.js';
 
+type RegisterInput = {
+  email: string;
+  password: string;
+  fullName: string;
+  role?: string;
+  jobTitle?: string;
+  job_title?: string;
+};
+
 export class AuthService {
-  static async register(input: { email: string; password: string; fullName: string; role?: string }) {
+  private static async bootstrapUserRows(userId: string, input: RegisterInput) {
+    await supabaseAdmin.from('profiles').upsert({
+      id: userId,
+      email: input.email,
+      full_name: input.fullName,
+      role: input.role ?? 'student',
+      updated_at: new Date().toISOString(),
+    });
+
+    await supabaseAdmin.from('user_xp').upsert({
+      user_id: userId,
+      total_xp: 0,
+      current_level: 1,
+      current_streak_days: 0,
+      longest_streak_days: 0,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'user_id' });
+
+    const { data: existingSession } = await supabaseAdmin
+      .from('chat_sessions')
+      .select('id')
+      .eq('user_id', userId)
+      .limit(1)
+      .maybeSingle();
+
+    if (!existingSession) {
+      await supabaseAdmin.from('chat_sessions').insert({
+        user_id: userId,
+        title: 'Welcome to ZeroGap',
+        context_type: 'general',
+      });
+    }
+
+    const jobTitle = (input.jobTitle ?? input.job_title ?? '').trim();
+    if (jobTitle) {
+      await supabaseAdmin.from('target_roles').update({ is_active: false }).eq('user_id', userId);
+      await supabaseAdmin.from('target_roles').insert({
+        user_id: userId,
+        job_title: jobTitle,
+        experience_level: 'fresher',
+        is_active: true,
+      });
+    }
+  }
+
+  static async register(input: RegisterInput) {
     const usingServiceRole = env.SUPABASE_SERVICE_ROLE_KEY !== env.SUPABASE_ANON_KEY;
     let userId: string;
     let session: any;
@@ -62,11 +116,13 @@ export class AuthService {
       session = data.session;
     }
 
+    await this.bootstrapUserRows(userId, input);
     const profile = await getProfileOrThrow(userId);
 
     return {
       user: profile,
       session,
+      isNewUser: true,
     };
   }
 

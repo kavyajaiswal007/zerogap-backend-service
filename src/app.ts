@@ -27,6 +27,7 @@ import { achievementsRouter } from './modules/achievements/achievements.routes.j
 import { failurePredictionRouter } from './modules/failurePrediction/failurePrediction.routes.js';
 import { projectBuilderRouter } from './modules/projectBuilder/projectBuilder.routes.js';
 import { collegePanelRouter } from './modules/collegePanel/collegePanel.routes.js';
+import { dashboardRouter } from './modules/dashboard/dashboard.routes.js';
 
 const swaggerSpec = swaggerJsdoc({
   definition: {
@@ -80,8 +81,36 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(httpLogger);
 
-app.get('/health', (_req, res) => {
-  res.status(200).json(buildResponse(true, { status: 'ok' }, 'Service healthy'));
+app.get('/health', async (_req, res) => {
+  const checks = {
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    services: {
+      database: 'checking',
+      redis: 'checking',
+      ai: 'ok',
+    },
+  };
+
+  try {
+    const { error } = await import('./config/supabase.js').then(({ supabaseAdmin }) =>
+      supabaseAdmin.from('profiles').select('id').limit(1),
+    );
+    checks.services.database = error ? 'error' : 'ok';
+  } catch {
+    checks.services.database = 'error';
+  }
+
+  try {
+    const { redis, isRedisEnabled } = await import('./config/redis.js');
+    checks.services.redis = isRedisEnabled() ? await redis.ping() : 'degraded';
+    if (checks.services.redis === 'PONG') checks.services.redis = 'ok';
+  } catch {
+    checks.services.redis = 'degraded';
+  }
+
+  res.status(checks.services.database === 'ok' ? 200 : 503).json(checks);
 });
 
 app.get('/', (_req, res) => {
@@ -97,6 +126,7 @@ app.use('/api/docs', swaggerUi.serve, (req: Request, res: Response, next: NextFu
 });
 app.use('/api/auth', authRateLimiter, authRouter);
 app.use('/api', generalRateLimiter);
+app.use('/api', dashboardRouter);
 app.use('/api', profileRouter);
 app.use('/api', skillGapRouter);
 app.use('/api', scoringRouter);

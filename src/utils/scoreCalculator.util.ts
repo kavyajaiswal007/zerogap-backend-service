@@ -9,6 +9,9 @@ export interface ScoreBreakdown {
 }
 
 export function clampScore(value: number) {
+  if (!Number.isFinite(value) || Number.isNaN(value)) {
+    return 0;
+  }
   return Math.max(0, Math.min(100, Number(value.toFixed(2))));
 }
 
@@ -40,6 +43,12 @@ export async function getCachedScore(userId: string): Promise<ScoreBreakdown | n
 }
 
 export async function publishScoreUpdate(userId: string, score: ScoreBreakdown) {
+  await supabaseAdmin.channel(`score-updates:${userId}`).send({
+    type: 'broadcast',
+    event: 'score_updated',
+    payload: score,
+  });
+
   await supabaseAdmin.channel(`score:${userId}`).send({
     type: 'broadcast',
     event: 'score.updated',

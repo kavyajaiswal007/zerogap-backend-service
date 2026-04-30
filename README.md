@@ -1,117 +1,61 @@
 # ZeroGap Backend
 
-Production-oriented Express + TypeScript backend for ZeroGap. This backend was created separately from the frontend so the existing frontend stays untouched.
+AI-powered Skill Mapping & Employability platform backend.
 
 ## Stack
 
-- Node.js 20+
-- Express.js + TypeScript
-- Supabase Postgres + Auth + Storage + Realtime
-- Redis / Upstash via `ioredis`
-- BullMQ background queues
-- OpenAI
-- RapidAPI JSearch
-- Zod validation
-- Winston + Morgan logging
-- Swagger docs at `/api/docs`
+- Node.js 20 + Express.js + TypeScript
+- Supabase (PostgreSQL + Auth + Storage + Realtime)
+- Redis (BullMQ queues + caching)
+- OpenAI + optional Anthropic fallback
+- JSearch RapidAPI for job listings
+- Puppeteer + PDFKit fallback for resume PDFs
 
-## Project Structure
-
-```text
-zerogap-backend/
-├── src/
-├── supabase/
-│   └── migrations/
-├── postman/
-├── Dockerfile
-├── docker-compose.yml
-├── package.json
-└── tsconfig.json
-```
-
-## Setup
-
-1. Copy `.env.example` to `.env`.
-2. Fill in real credentials for Supabase, Redis, Anthropic, OpenAI, GitHub OAuth, LinkedIn, and RapidAPI.
-3. Install dependencies:
+## Quick Start
 
 ```bash
+cp .env.example .env
 npm install
-```
-
-4. Run the Supabase migration in your Supabase SQL editor or with the Supabase CLI:
-
-```bash
-supabase login
-supabase init
-supabase link --project-ref YOUR_PROJECT_REF
-supabase db push
-```
-
-5. Create a Supabase Storage bucket named `resumes`.
-6. Make sure GitHub and Google providers are enabled in Supabase Auth.
-7. Start the API:
-
-```bash
 npm run dev
 ```
 
-8. Open Swagger docs:
+The API runs on `PORT` from `.env` and exposes Swagger at `/api/docs`.
 
-```text
-http://localhost:5000/api/docs
+## Database Setup
+
+Run migrations in order:
+
+```bash
+psql "$DATABASE_URL" < supabase/migrations/001_initial_schema.sql
+psql "$DATABASE_URL" < supabase/migrations/002_additions.sql
 ```
+
+Create a public Supabase Storage bucket named by `RESUME_STORAGE_BUCKET` (default `resumes`).
 
 ## Environment Variables
 
-See [.env.example](/Users/kavyajaiswal/Desktop/ZeroGap%20./ZeroGap%20backend%20/.env.example) for the full list. Required variables:
+See [.env.example](/Users/kavyajaiswal/Desktop/ZeroGap%20./ZeroGap%20backend%20/.env.example) for all required variables, including Supabase, Redis, OpenAI, OAuth, RapidAPI, and frontend URL.
 
-- `SUPABASE_URL`
-- `SUPABASE_ANON_KEY`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `REDIS_URL`
-- `OPENAI_API_KEY`
-- `RAPIDAPI_KEY`
-- `GITHUB_CLIENT_ID`
-- `GITHUB_CLIENT_SECRET`
-- `LINKEDIN_CLIENT_ID`
-- `LINKEDIN_CLIENT_SECRET`
-- `FRONTEND_URL`
-- `JWT_SECRET`
+## Important Endpoints
 
-## Key Features
+- `GET /health`
+- `GET /api/dashboard`
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `GET /api/auth/google`
+- `GET /api/auth/github`
+- `POST /api/mentor/chat`
+- `POST /api/resume/:id/export-pdf`
 
-- Full auth flow with Supabase email/password and OAuth redirects
-- Profile, onboarding, skills, certificates, and resume upload flows
-- Skill gap analysis with market-skill fallback from JSearch
-- Score calculation, caching, and realtime publish hooks
-- AI roadmap generation with task completion, streaks, XP, and achievements
-- AI mentor SSE chat
-- Resume generation + queued PDF export
-- Hire Me job matching
-- Benchmarking, failure prediction, and project generation
-- College admin analytics endpoints
+## Architecture
 
-## Docker
+- `src/modules/` feature modules
+- `src/queues/` BullMQ queue entry points
+- `src/workers/` worker startup
+- `src/utils/` shared utilities
+- `src/middleware/` auth, validation, rate limits, and errors
+- `supabase/migrations/` schema changes
 
-```bash
-docker compose up --build
-```
+## Production Notes
 
-## Health Check
-
-```text
-GET /health
-```
-
-## Postman
-
-Postman collection:
-
-- [zerogap-backend.postman_collection.json](/Users/kavyajaiswal/Desktop/ZeroGap%20./ZeroGap%20backend%20/postman/zerogap-backend.postman_collection.json)
-
-## Notes
-
-- The frontend was not modified.
-- Real provider secrets should live only in `.env`, not in committed files.
-- Some external flows depend on Supabase project configuration, OAuth provider setup, and existing storage buckets.
+Keep real secrets only in Render/Vercel/Supabase environment settings. Rotate any keys that were pasted into chat or logs.

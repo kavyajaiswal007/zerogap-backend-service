@@ -11,6 +11,31 @@ const STOCK_USER_SKILLS = [
   { skill_name: 'TypeScript', proficiency_level: 55 },
 ];
 
+const SKILL_ALIASES: Record<string, string[]> = {
+  javascript: ['js', 'ecmascript'],
+  typescript: ['ts'],
+  'node js': ['nodejs', 'node'],
+  'express js': ['express'],
+  'rest apis': ['api', 'apis', 'rest api'],
+  postgresql: ['postgres', 'sql'],
+  'tailwind css': ['tailwind'],
+  'html css': ['html', 'css'],
+};
+
+function normalizeSkillName(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function fuzzySkillMatch(required: string, actual: string) {
+  const left = normalizeSkillName(required);
+  const right = normalizeSkillName(actual);
+  if (!left || !right) return false;
+  if (left === right || left.includes(right) || right.includes(left)) return true;
+
+  const aliases = SKILL_ALIASES[left] ?? [];
+  return aliases.some((alias) => normalizeSkillName(alias) === right);
+}
+
 function fallbackSkillsForRole(role: string) {
   const normalized = role.toLowerCase();
 
@@ -89,7 +114,7 @@ export class SkillGapService {
 
     if (error) throw new AppError(error.message, 500, 'DB_ERROR');
 
-    if (!matrix?.length) {
+    if (!matrix?.length || matrix.length < 5) {
       let skills: string[] = [];
 
       try {
@@ -115,7 +140,13 @@ export class SkillGapService {
           { onConflict: 'job_title,skill_name' },
         );
       }
-      matrix = skills.map((skill: string) => ({ skill_name: skill, market_demand_score: 80, is_mandatory: true }));
+      const existingNames = new Set((matrix ?? []).map((item: any) => String(item.skill_name).toLowerCase()));
+      matrix = [
+        ...(matrix ?? []),
+        ...skills
+          .filter((skill: string) => !existingNames.has(skill.toLowerCase()))
+          .map((skill: string) => ({ skill_name: skill, market_demand_score: 80, is_mandatory: true })),
+      ];
     }
 
     return matrix ?? [];
@@ -132,19 +163,20 @@ export class SkillGapService {
     }
 
     const requiredSkills = await this.getMarketSkills(targetRole.job_title);
-    const skillMap = new Map(userSkills.map((skill) => [skill.skill_name.toLowerCase(), skill]));
+    const findUserSkill = (requiredName: string) =>
+      userSkills.find((skill) => fuzzySkillMatch(requiredName, skill.skill_name));
 
     const matched = requiredSkills.filter((required: any) => {
-      const userSkill = skillMap.get(required.skill_name.toLowerCase());
+      const userSkill = findUserSkill(required.skill_name);
       return userSkill && userSkill.proficiency_level >= 60;
     }).map((item: any) => item.skill_name);
 
     const partial = requiredSkills.filter((required: any) => {
-      const userSkill = skillMap.get(required.skill_name.toLowerCase());
+      const userSkill = findUserSkill(required.skill_name);
       return userSkill && userSkill.proficiency_level < 60;
     }).map((item: any) => item.skill_name);
 
-    const missing = requiredSkills.filter((required: any) => !skillMap.has(required.skill_name.toLowerCase())).map((item: any) => item.skill_name);
+    const missing = requiredSkills.filter((required: any) => !findUserSkill(required.skill_name)).map((item: any) => item.skill_name);
 
     const skillsMatchPercentage = requiredSkills.length
       ? Number(((matched.length / requiredSkills.length) * 100).toFixed(2))

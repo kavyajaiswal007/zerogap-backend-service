@@ -32,6 +32,8 @@ export const registerSchema = z.object({
   password: passwordSchema,
   fullName: fullNameSchema,
   role: z.enum(['student', 'college', 'recruiter', 'mentor', 'parent', 'admin']).optional(),
+  jobTitle: z.string().min(2).optional(),
+  job_title: z.string().min(2).optional(),
 });
 
 export const loginSchema = z.object({

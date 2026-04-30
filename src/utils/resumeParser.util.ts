@@ -22,8 +22,17 @@ export async function parseResumeBuffer(buffer: Buffer): Promise<ParsedResumeDat
   };
 
   return getClaudeJson<ParsedResumeData>(
-    'You extract structured JSON from resumes.',
-    `Extract from this resume: name, email, education, skills (with proficiency), work experience, projects, certifications.\n\nResume Text:\n${pdfResult.text}`,
+    `Extract from this resume and return ONLY valid JSON (no markdown, no explanation):
+{
+  "basics": { "name", "email", "phone", "location", "linkedin", "github", "website" },
+  "summary": "professional summary string",
+  "education": [{ "institution", "degree", "field", "graduation_year", "gpa" }],
+  "experience": [{ "company", "title", "start_date", "end_date", "description", "skills_used" }],
+  "skills": [{ "skill_name", "proficiency_level": 0-100, "category" }],
+  "projects": [{ "name", "description", "tech_stack", "url" }],
+  "certifications": [{ "title", "issuer", "date", "url" }]
+}`,
+    `Resume Text:\n${pdfResult.text}`,
     fallback,
   );
 }

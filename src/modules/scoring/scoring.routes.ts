@@ -30,6 +30,18 @@ scoringRouter.get('/score/radar', requireAuth, async (req: AuthenticatedRequest,
   }
 });
 
+scoringRouter.get('/score/breakdown', requireAuth, async (req: AuthenticatedRequest, res, next) => {
+  try {
+    const [score, radar] = await Promise.all([
+      ScoringService.current(req.user!.id),
+      ScoringService.radar(req.user!.id),
+    ]);
+    sendSuccess(res, { ...score, radar }, 'Score breakdown fetched');
+  } catch (error) {
+    next(error);
+  }
+});
+
 scoringRouter.post('/score/recalculate', requireAuth, async (req: AuthenticatedRequest, res, next) => {
   try {
     sendSuccess(res, await ScoringService.recalculate(req.user!.id), 'Score recalculated');

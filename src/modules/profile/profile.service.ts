@@ -241,20 +241,29 @@ export class ProfileService {
 
   static async uploadResume(userId: string, buffer: Buffer, fileName: string) {
     const parsed = await parseResumeBuffer(buffer);
+    const parsedAny = parsed as any;
+    const basics = parsedAny.basics ?? {};
+    const education = parsedAny.education ?? parsed.education ?? [];
+    const skills = (parsedAny.skills ?? parsed.skills ?? []).map((skill: any) => ({
+      name: skill.skill_name ?? skill.name,
+      proficiency: skill.proficiency_level ?? skill.proficiency ?? 60,
+    })).filter((skill: any) => skill.name);
+    const certifications = parsedAny.certifications ?? parsed.certifications ?? [];
 
-    if (parsed.name || parsed.email || parsed.education?.length) {
+    if (parsed.name || parsed.email || basics.name || basics.email || education.length) {
       await supabaseAdmin.from('profiles').update({
-        full_name: parsed.name,
-        email: parsed.email,
-        degree: parsed.education?.[0]?.degree,
-        graduation_year: parsed.education?.[0]?.year,
+        full_name: basics.name ?? parsed.name,
+        email: basics.email ?? parsed.email,
+        degree: education?.[0]?.degree,
+        graduation_year: education?.[0]?.graduation_year ?? education?.[0]?.year,
+        bio: parsedAny.summary,
         updated_at: new Date().toISOString(),
       }).eq('id', userId);
     }
 
-    if (parsed.skills?.length) {
+    if (skills.length) {
       await supabaseAdmin.from('user_skills').upsert(
-        parsed.skills.map((skill) => ({
+        skills.map((skill: any) => ({
           user_id: userId,
           skill_name: skill.name,
           proficiency_level: skill.proficiency,
@@ -265,13 +274,13 @@ export class ProfileService {
       );
     }
 
-    if (parsed.certifications?.length) {
+    if (certifications.length) {
       await supabaseAdmin.from('certificates').insert(
-        parsed.certifications.map((certificate) => ({
+        certifications.map((certificate: any) => ({
           user_id: userId,
           title: certificate.title,
           issuer: certificate.issuer,
-          credential_url: certificate.credential_url,
+          credential_url: certificate.credential_url ?? certificate.url,
         })),
       );
     }
