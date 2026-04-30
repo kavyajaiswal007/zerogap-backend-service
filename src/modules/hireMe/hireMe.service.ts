@@ -125,39 +125,54 @@ function normalizeHighlights(value: unknown): JobHighlights {
   };
 }
 
+function positiveNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+}
+
+function cleanSalaryRange(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (/null|undefined/i.test(trimmed)) return null;
+  if (/^(?:[A-Z]{3}\s*)?0(?:\.0+)?\s*[-–]\s*0(?:\.0+)?/i.test(trimmed)) return null;
+  return trimmed;
+}
+
 function formatSalaryRange(job: any): string | null {
-  const min = Number(job.job_min_salary);
-  const max = Number(job.job_max_salary);
+  const min = positiveNumber(job.job_min_salary);
+  const max = positiveNumber(job.job_max_salary);
   const currency = job.job_salary_currency;
   const period = job.job_salary_period;
 
-  if (!Number.isFinite(min) && !Number.isFinite(max)) return null;
+  if (min === null && max === null) return null;
 
   if (currency === 'INR') {
-    const minLpa = Number.isFinite(min) ? (period === 'MONTH' ? (min * 12) / 100000 : min / 100000) : null;
-    const maxLpa = Number.isFinite(max) ? (period === 'MONTH' ? (max * 12) / 100000 : max / 100000) : null;
+    const minLpa = min !== null ? (period === 'MONTH' ? (min * 12) / 100000 : min / 100000) : null;
+    const maxLpa = max !== null ? (period === 'MONTH' ? (max * 12) / 100000 : max / 100000) : null;
     if (minLpa && maxLpa) return `₹${minLpa.toFixed(1)}-${maxLpa.toFixed(1)} LPA`;
     if (maxLpa) return `Up to ₹${maxLpa.toFixed(1)} LPA`;
     if (minLpa) return `₹${minLpa.toFixed(1)}+ LPA`;
   }
 
   if (currency === 'USD') {
-    const minLpa = Number.isFinite(min) ? (min * 83 * (period === 'MONTH' ? 12 : 1)) / 100000 : null;
-    const maxLpa = Number.isFinite(max) ? (max * 83 * (period === 'MONTH' ? 12 : 1)) / 100000 : null;
+    const minLpa = min !== null ? (min * 83 * (period === 'MONTH' ? 12 : 1)) / 100000 : null;
+    const maxLpa = max !== null ? (max * 83 * (period === 'MONTH' ? 12 : 1)) / 100000 : null;
     if (minLpa && maxLpa) return `₹${minLpa.toFixed(0)}-${maxLpa.toFixed(0)} LPA`;
     if (maxLpa) return `Up to ₹${maxLpa.toFixed(0)} LPA`;
     if (minLpa) return `₹${minLpa.toFixed(0)}+ LPA`;
   }
 
-  if (Number.isFinite(min) && Number.isFinite(max)) {
+  if (min !== null && max !== null) {
     return `${currency ?? ''} ${min.toLocaleString()}-${max.toLocaleString()}${period ? ` (${period})` : ''}`.trim();
   }
   return null;
 }
 
 function normalizeSalaryMin(job: any): number | null {
-  const min = Number(job.job_min_salary);
-  if (!Number.isFinite(min)) return null;
+  const min = positiveNumber(job.job_min_salary);
+  if (min === null) return null;
   const multiplier = job.job_salary_period === 'MONTH' ? 12 : 1;
   if (job.job_salary_currency === 'INR') return Math.round((min * multiplier) / 100000 * 10) / 10;
   if (job.job_salary_currency === 'USD') return Math.round((min * 83 * multiplier) / 100000);
@@ -165,8 +180,8 @@ function normalizeSalaryMin(job: any): number | null {
 }
 
 function normalizeSalaryMax(job: any): number | null {
-  const max = Number(job.job_max_salary);
-  if (!Number.isFinite(max)) return null;
+  const max = positiveNumber(job.job_max_salary);
+  if (max === null) return null;
   const multiplier = job.job_salary_period === 'MONTH' ? 12 : 1;
   if (job.job_salary_currency === 'INR') return Math.round((max * multiplier) / 100000 * 10) / 10;
   if (job.job_salary_currency === 'USD') return Math.round((max * 83 * multiplier) / 100000);
@@ -201,9 +216,9 @@ function normalizeJobListing(raw: any, role = DEFAULT_ROLE): JobListing {
       ? normalizeStringArray(raw.skills_required).slice(0, 12)
       : extractSkillsFromDescription(`${raw.title ?? raw.job_title ?? ''}\n${raw.description ?? raw.job_description ?? ''}`, role),
     apply_url: raw.apply_url ?? raw.job_apply_link ?? raw.job_google_link ?? null,
-    salary_range: raw.salary_range ?? formatSalaryRange(raw),
-    salary_lpa_min: raw.salary_lpa_min ?? normalizeSalaryMin(raw),
-    salary_lpa_max: raw.salary_lpa_max ?? normalizeSalaryMax(raw),
+    salary_range: cleanSalaryRange(raw.salary_range) ?? formatSalaryRange(raw),
+    salary_lpa_min: positiveNumber(raw.salary_lpa_min) ?? normalizeSalaryMin(raw),
+    salary_lpa_max: positiveNumber(raw.salary_lpa_max) ?? normalizeSalaryMax(raw),
     source: raw.source ?? 'jsearch',
     is_active: raw.is_active ?? true,
     posted_at: raw.posted_at ?? raw.job_posted_at_datetime_utc ?? new Date().toISOString(),
