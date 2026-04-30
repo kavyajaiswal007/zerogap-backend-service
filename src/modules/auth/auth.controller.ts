@@ -5,9 +5,18 @@ import type { AuthenticatedRequest } from '../../types/index.js';
 import { getProfileOrThrow } from '../../utils/db.util.js';
 import { supabaseAdmin } from '../../config/supabase.js';
 import { env } from '../../config/env.js';
+import { enqueueGithubSync } from '../../queues/skillAnalysis.queue.js';
+import { logger } from '../../utils/logger.util.js';
 
 function getBackendBase(req: Request) {
   return `${req.protocol}://${req.get('host')}`;
+}
+
+function buildFrontendCallbackUrl(accessToken: string, refreshToken: string) {
+  const redirectUrl = new URL('/auth/callback', env.FRONTEND_URL);
+  redirectUrl.searchParams.set('access_token', accessToken);
+  redirectUrl.searchParams.set('refresh_token', refreshToken);
+  return redirectUrl.toString();
 }
 
 export class AuthController {
@@ -92,6 +101,7 @@ export class AuthController {
           data.user.user_metadata.preferred_username ??
           '',
       );
+      const providerToken = String((data.session as any).provider_token ?? '').trim();
 
       await supabaseAdmin.from('profiles').upsert({
         id: data.user.id,
@@ -99,9 +109,20 @@ export class AuthController {
         full_name: data.user.user_metadata.full_name ?? data.user.user_metadata.name,
         avatar_url: data.user.user_metadata.avatar_url,
         github_username: username || null,
+        github_access_token: providerToken || undefined,
       });
 
-      res.redirect(`${env.FRONTEND_URL}?access_token=${data.session.access_token}&refresh_token=${data.session.refresh_token}`);
+      if (username || providerToken) {
+        await enqueueGithubSync(data.user.id, username || undefined).catch((error) => {
+          logger.warn({
+            message: 'Unable to enqueue GitHub sync from OAuth callback',
+            error: error instanceof Error ? error.message : String(error),
+            userId: data.user.id,
+          });
+        });
+      }
+
+      res.redirect(buildFrontendCallbackUrl(data.session.access_token, data.session.refresh_token));
     } catch (error) {
       next(error);
     }
@@ -119,7 +140,7 @@ export class AuthController {
         avatar_url: data.user.user_metadata.avatar_url,
       });
 
-      res.redirect(`${env.FRONTEND_URL}?access_token=${data.session.access_token}&refresh_token=${data.session.refresh_token}`);
+      res.redirect(buildFrontendCallbackUrl(data.session.access_token, data.session.refresh_token));
     } catch (error) {
       next(error);
     }

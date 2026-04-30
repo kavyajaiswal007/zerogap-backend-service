@@ -5,7 +5,7 @@ import { logger } from '../utils/logger.util.js';
 let redisEnabled = false;
 
 export const redis = new Redis(env.REDIS_URL, {
-  maxRetriesPerRequest: 1,
+  maxRetriesPerRequest: null,
   enableReadyCheck: false,
   lazyConnect: true,
   retryStrategy: () => null,

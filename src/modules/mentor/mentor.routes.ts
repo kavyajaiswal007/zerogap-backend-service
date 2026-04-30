@@ -2,21 +2,25 @@ import { Router } from 'express';
 import { requireAuth } from '../../middleware/auth.middleware.js';
 import { aiRateLimiter } from '../../middleware/rateLimit.middleware.js';
 import type { AuthenticatedRequest } from '../../types/index.js';
-import { buildResponse, sendSuccess } from '../../utils/api.util.js';
+import { sendSuccess } from '../../utils/api.util.js';
+import { AppError } from '../../utils/error.util.js';
 import { MentorService } from './mentor.service.js';
 
 export const mentorRouter = Router();
 
 mentorRouter.post('/mentor/chat', requireAuth, aiRateLimiter, async (req: AuthenticatedRequest, res, next) => {
   try {
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
+    const message = String(req.body.message ?? '').trim();
+    if (!message) {
+      throw new AppError('Message is required', 400, 'MENTOR_MESSAGE_REQUIRED');
+    }
 
-    const reply = await MentorService.chat(req.user!.id, req.body.session_id, req.body.message);
-    res.write(`data: ${JSON.stringify(buildResponse(true, { content: reply }, 'Mentor response streamed'))}\n\n`);
-    res.write('event: done\ndata: {"done":true}\n\n');
-    res.end();
+    await MentorService.streamChat(
+      req.user!.id,
+      String(req.body.sessionId ?? req.body.session_id ?? '') || undefined,
+      message,
+      res,
+    );
   } catch (error) {
     next(error);
   }

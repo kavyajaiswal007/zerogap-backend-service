@@ -1,7 +1,11 @@
 import { supabaseAdmin } from '../../config/supabase.js';
+import { anthropic } from '../../config/anthropic.js';
 import { getClaudeText } from '../../utils/claude.util.js';
 import { getActiveTargetRole, getLatestSkillGapAnalysis, getProfileOrThrow } from '../../utils/db.util.js';
 import { ScoringService } from '../scoring/scoring.service.js';
+import type { Response } from 'express';
+
+type ChatRole = 'user' | 'assistant';
 
 export class MentorService {
   static async listSessions(userId: string) {
@@ -26,6 +30,53 @@ export class MentorService {
   static async deleteSession(userId: string, sessionId: string) {
     await supabaseAdmin.from('chat_sessions').delete().eq('id', sessionId).eq('user_id', userId);
     return { deleted: true };
+  }
+
+  private static async getOrCreateSession(userId: string, sessionId?: string | null, title?: string) {
+    if (sessionId) {
+      const { data } = await supabaseAdmin
+        .from('chat_sessions')
+        .select('*')
+        .eq('id', sessionId)
+        .eq('user_id', userId)
+        .maybeSingle();
+      if (data) return data;
+    }
+
+    return this.createSession(userId, title ?? 'Mentor chat');
+  }
+
+  private static async buildSystemPrompt(userId: string) {
+    const [profile, targetRole, analysis, score] = await Promise.all([
+      getProfileOrThrow(userId),
+      getActiveTargetRole(userId),
+      getLatestSkillGapAnalysis(userId),
+      ScoringService.current(userId),
+    ]);
+
+    const [recentLogs, roadmap] = await Promise.all([
+      supabaseAdmin.from('execution_logs').select('action, date').eq('user_id', userId).order('created_at', { ascending: false }).limit(5),
+      supabaseAdmin.from('roadmaps').select('title, completion_percentage').eq('user_id', userId).eq('is_active', true).maybeSingle(),
+    ]);
+
+    return `You are ZeroGap AI Mentor — an expert career coach and technical mentor for students targeting tech jobs in India.
+
+STUDENT PROFILE:
+- Name: ${profile.full_name ?? 'ZeroGap User'}
+- Target Role: ${targetRole?.job_title ?? 'Full Stack Developer'}
+- Current Skill Score: ${score.finalScore}/100
+- College: ${profile.college_name ?? 'Independent learner'}
+- Graduation Year: ${profile.graduation_year ?? 'Unknown'}
+- Missing Skills: ${(analysis?.missing_skills ?? []).slice(0, 8).join(', ') || 'Run skill gap analysis first'}
+- Active Roadmap: ${roadmap.data?.title ?? 'No active roadmap'} (${roadmap.data?.completion_percentage ?? 0}% complete)
+- Recent Activity: ${JSON.stringify(recentLogs.data ?? [])}
+
+BEHAVIOR:
+- Be specific and data-driven. Reference their actual skill gaps by name.
+- Suggest specific free resources when useful.
+- For technical questions, give clean examples.
+- Keep responses under 300 words unless the user asks for depth.
+- Always end with one clear next action they can take today.`;
   }
 
   static async chat(userId: string, sessionId: string, message: string) {
@@ -73,5 +124,84 @@ When they ask technical questions, answer clearly. When they seem demotivated, b
     await supabaseAdmin.from('chat_sessions').update({ last_message_at: new Date().toISOString() }).eq('id', sessionId);
 
     return assistantText;
+  }
+
+  static async streamChat(userId: string, sessionId: string | undefined, message: string, res: Response) {
+    const session = await this.getOrCreateSession(userId, sessionId, message.slice(0, 48));
+    const systemPrompt = await this.buildSystemPrompt(userId);
+    const history = await this.getMessages(userId, session.id);
+
+    await supabaseAdmin.from('chat_messages').insert({
+      session_id: session.id,
+      user_id: userId,
+      role: 'user',
+      content: message,
+      token_count: Math.ceil(message.length / 4),
+    });
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders?.();
+
+    let fullResponse = '';
+
+    try {
+      const messages = [
+        ...history.slice(-20).map((item: any) => ({
+          role: item.role as ChatRole,
+          content: String(item.content ?? ''),
+        })),
+        { role: 'user' as const, content: message },
+      ].filter((item) => item.role === 'user' || item.role === 'assistant');
+
+      if (anthropic) {
+        const stream = anthropic.messages.stream({
+          model: 'claude-3-5-sonnet-latest',
+          max_tokens: 1500,
+          system: systemPrompt,
+          messages,
+        });
+
+        for await (const chunk of stream) {
+          if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
+            const text = chunk.delta.text;
+            fullResponse += text;
+            res.write(`data: ${JSON.stringify({ type: 'delta', text })}\n\n`);
+          }
+        }
+      } else {
+        const fallbackText = await getClaudeText(
+          systemPrompt,
+          `Conversation history:\n${JSON.stringify(history.slice(-20))}\n\nUser: ${message}`,
+        );
+        for (const text of fallbackText.match(/.{1,80}(\s|$)/g) ?? [fallbackText]) {
+          fullResponse += text;
+          res.write(`data: ${JSON.stringify({ type: 'delta', text })}\n\n`);
+        }
+      }
+
+      await supabaseAdmin.from('chat_messages').insert({
+        session_id: session.id,
+        user_id: userId,
+        role: 'assistant',
+        content: fullResponse,
+        token_count: Math.ceil(fullResponse.length / 4),
+      });
+      await supabaseAdmin
+        .from('chat_sessions')
+        .update({
+          title: session.title || message.slice(0, 48),
+          last_message_at: new Date().toISOString(),
+        })
+        .eq('id', session.id);
+
+      res.write(`data: ${JSON.stringify({ type: 'done', sessionId: session.id })}\n\n`);
+    } catch (error) {
+      res.write(`data: ${JSON.stringify({ type: 'error', message: 'Stream failed' })}\n\n`);
+    } finally {
+      res.end();
+    }
   }
 }

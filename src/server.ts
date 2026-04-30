@@ -4,14 +4,16 @@ import { ensureRedisConnection } from './config/redis.js';
 import { logger } from './utils/logger.util.js';
 import { scheduleJobScraping } from './queues/jobScraping.queue.js';
 import { AchievementsService } from './modules/achievements/achievements.service.js';
-import './queues/skillAnalysis.queue.js';
-import './queues/resumeGeneration.queue.js';
+import { seedSkillMatrixIfEmpty } from './seeds/skillMatrix.seed.js';
+import { startWorkers } from './workers/index.js';
 
 const port = Number(env.PORT);
 
 async function runStartupTasks() {
   await ensureRedisConnection();
   await AchievementsService.ensureSeeded();
+  await seedSkillMatrixIfEmpty();
+  startWorkers();
   await scheduleJobScraping();
 }
 

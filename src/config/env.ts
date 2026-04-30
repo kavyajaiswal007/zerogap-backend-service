@@ -9,6 +9,7 @@ const envSchema = z.object({
   SUPABASE_URL: z.string().url(),
   SUPABASE_ANON_KEY: z.string(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
+  ANTHROPIC_API_KEY: z.string().optional(),
   OPENAI_API_KEY: z.string(),
   REDIS_URL: z.string().url(),
   RAPIDAPI_KEY: z.string(),
@@ -19,6 +20,7 @@ const envSchema = z.object({
   LINKEDIN_CLIENT_ID: z.string(),
   LINKEDIN_CLIENT_SECRET: z.string(),
   FRONTEND_URL: z.string().url().default('http://localhost:3000'),
+  RESUME_STORAGE_BUCKET: z.string().default('resumes'),
   JWT_SECRET: z.string().min(32),
 });
 
