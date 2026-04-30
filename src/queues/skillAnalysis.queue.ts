@@ -9,6 +9,10 @@ import { logger } from '../utils/logger.util.js';
 
 let skillAnalysisQueue: Queue | null = null;
 
+function safeJobId(prefix: string, id: string) {
+  return `${prefix}-${id.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+}
+
 export function getSkillAnalysisQueue() {
   if (!isRedisEnabled()) {
     return null;
@@ -58,7 +62,7 @@ export async function enqueueSkillAnalysis(userId: string) {
   }
 
   await queue.add('full-analysis', { userId }, {
-    jobId: `full-analysis:${userId}`,
+    jobId: safeJobId('full-analysis', userId),
     delay: 5 * 60 * 1000,
     removeOnComplete: 100,
     removeOnFail: 100,
@@ -84,7 +88,7 @@ export async function enqueueGithubSync(userId: string, githubUsername?: string)
   }
 
   await queue.add('github-sync', { userId, githubUsername }, {
-    jobId: `github-sync:${userId}`,
+    jobId: safeJobId('github-sync', userId),
     delay: 2000,
     removeOnComplete: 100,
     removeOnFail: 100,

@@ -5,6 +5,10 @@ const TOP_ROLES = ['Software Engineer', 'Frontend Developer', 'Backend Developer
 
 let jobScrapingQueue: Queue | null = null;
 
+function safeJobId(prefix: string, id: string) {
+  return `${prefix}-${id.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+}
+
 export function getJobScrapingQueue() {
   if (!isRedisEnabled()) {
     return null;
@@ -20,7 +24,7 @@ export async function scheduleJobScraping() {
   }
   for (const role of TOP_ROLES) {
     await queue.add('refresh-role', { role }, {
-      jobId: `refresh-role:${role}`,
+      jobId: safeJobId('refresh-role', role),
       repeat: { every: 6 * 60 * 60 * 1000 },
       removeOnComplete: 50,
       removeOnFail: 50,
