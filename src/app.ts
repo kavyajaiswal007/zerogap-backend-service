@@ -51,6 +51,10 @@ const swaggerSpec = swaggerJsdoc({
 
 export const app = express();
 
+// Render and Vercel sit behind proxies. Trust the first proxy so rate limiting
+// keys use the real client IP instead of grouping all users behind one proxy.
+app.set('trust proxy', 1);
+
 const allowedOrigins = new Set([
   env.FRONTEND_URL,
   'http://localhost:3000',

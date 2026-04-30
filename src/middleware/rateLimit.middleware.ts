@@ -58,9 +58,9 @@ function createRateLimiter(windowMs: number, max: number, message: string, keyPr
   });
 }
 
-export const generalRateLimiter = createRateLimiter(15 * 60 * 1000, 100, 'Too many requests. Please slow down.', 'general');
+export const generalRateLimiter = createRateLimiter(15 * 60 * 1000, 1200, 'Too many requests. Please slow down.', 'general');
 
-export const authRateLimiter = createRateLimiter(15 * 60 * 1000, 10, 'Too many auth attempts. Please try again later.', 'auth');
+export const authRateLimiter = createRateLimiter(15 * 60 * 1000, 40, 'Too many auth attempts. Please try again later.', 'auth');
 
 export const aiRateLimiter = createRateLimiter(
   15 * 60 * 1000,
