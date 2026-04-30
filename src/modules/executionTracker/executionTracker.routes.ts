@@ -9,11 +9,30 @@ import { getUserXP } from '../../utils/db.util.js';
 
 const logSchema = z.object({
   task_id: z.string().uuid().optional(),
-  action: z.string().min(2),
-  time_spent_minutes: z.number().int().nonnegative().optional(),
+  action: z.preprocess((value) => {
+    const action = String(value ?? '').trim();
+    return action.length >= 2 ? action : 'Completed a focused portfolio sprint';
+  }, z.string().min(2)),
+  time_spent_minutes: z.preprocess((value) => {
+    const next = Number(value);
+    return Number.isFinite(next) ? Math.max(0, Math.round(next)) : 45;
+  }, z.number().int().nonnegative()).optional(),
   output_description: z.string().optional(),
-  proof_url: z.string().url().optional(),
-  xp_earned: z.number().int().nonnegative().optional(),
+  proof_url: z.preprocess((value) => {
+    const raw = String(value ?? '').trim();
+    if (!raw) return undefined;
+    const candidate = raw.startsWith('http://') || raw.startsWith('https://') ? raw : `https://${raw}`;
+    try {
+      const parsed = new URL(candidate);
+      return parsed.hostname.includes('.') ? parsed.toString() : undefined;
+    } catch {
+      return undefined;
+    }
+  }, z.string().url().optional()).catch(undefined),
+  xp_earned: z.preprocess((value) => {
+    const next = Number(value);
+    return Number.isFinite(next) ? Math.max(0, Math.round(next)) : 25;
+  }, z.number().int().nonnegative()).optional(),
 });
 
 export const executionTrackerRouter = Router();

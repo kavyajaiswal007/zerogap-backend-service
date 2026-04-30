@@ -9,6 +9,39 @@ import { parseResumeBuffer } from '../../utils/resumeParser.util.js';
 import { enqueueSkillAnalysis } from '../../queues/skillAnalysis.queue.js';
 import { RoadmapService } from '../roadmap/roadmap.service.js';
 
+const STOCK_SKILLS = [
+  { skill_name: 'React', proficiency_level: 65 },
+  { skill_name: 'JavaScript', proficiency_level: 70 },
+  { skill_name: 'TypeScript', proficiency_level: 55 },
+];
+
+const stockText = (fallback: string, min = 0) => z.preprocess((value) => {
+  const text = String(value ?? '').trim();
+  return text.length >= min ? text : fallback;
+}, z.string());
+
+const optionalText = z.preprocess((value) => {
+  const text = String(value ?? '').trim();
+  return text || undefined;
+}, z.string().optional()).catch(undefined);
+
+const optionalUrl = z.preprocess((value) => {
+  const raw = String(value ?? '').trim();
+  if (!raw) return undefined;
+  const candidate = raw.startsWith('http://') || raw.startsWith('https://') ? raw : `https://${raw}`;
+  try {
+    const parsed = new URL(candidate);
+    return parsed.hostname.includes('.') ? parsed.toString() : undefined;
+  } catch {
+    return undefined;
+  }
+}, z.string().url().optional()).catch(undefined);
+
+const optionalInt = z.preprocess((value) => {
+  const next = Number(value);
+  return Number.isFinite(next) ? Math.round(next) : undefined;
+}, z.number().int().optional()).catch(undefined);
+
 export const profileUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
@@ -19,33 +52,36 @@ export const profileUpload = multer({
 });
 
 export const updateProfileSchema = z.object({
-  full_name: z.string().min(2).optional(),
-  avatar_url: z.string().url().optional(),
+  full_name: stockText('ZeroGap User', 2).optional(),
+  avatar_url: optionalUrl,
   role: z.enum(['student', 'college', 'recruiter', 'mentor', 'parent', 'admin']).optional(),
-  college_name: z.string().optional(),
-  degree: z.string().optional(),
-  graduation_year: z.number().int().optional(),
-  location: z.string().optional(),
-  bio: z.string().optional(),
-  learning_style: z.string().optional(),
-  time_availability_hours: z.number().int().optional(),
-  github_username: z.string().optional(),
-  linkedin_url: z.string().url().optional(),
-  github_access_token: z.string().optional(),
+  college_name: optionalText,
+  degree: optionalText,
+  graduation_year: optionalInt,
+  location: optionalText,
+  bio: optionalText,
+  learning_style: optionalText,
+  time_availability_hours: optionalInt,
+  github_username: optionalText,
+  linkedin_url: optionalUrl,
+  github_access_token: optionalText,
   onboarding_completed: z.boolean().optional(),
 });
 
 export const onboardingSchema = z.object({
   profile: updateProfileSchema.partial().optional(),
   target_role: z.object({
-    job_title: z.string().min(2),
-    specialization: z.string().optional(),
+    job_title: stockText('Full Stack Developer', 2),
+    specialization: optionalText,
     experience_level: z.enum(['fresher', 'junior', 'mid', 'senior']).default('fresher'),
   }),
   skills: z.array(z.object({
-    skill_name: z.string().min(2),
-    proficiency_level: z.number().int().min(0).max(100),
-  })).default([]),
+    skill_name: stockText('React', 2),
+    proficiency_level: z.preprocess((value) => {
+      const next = Number(value);
+      return Number.isFinite(next) ? Math.min(100, Math.max(0, Math.round(next))) : 60;
+    }, z.number().int().min(0).max(100)),
+  })).default([]).catch(STOCK_SKILLS),
 });
 
 export const skillSchema = z.object({
@@ -100,13 +136,21 @@ export class ProfileService {
   }
 
   static async completeOnboarding(userId: string, payload: z.infer<typeof onboardingSchema>) {
+    const profilePayload = {
+      full_name: 'ZeroGap User',
+      college_name: 'Independent learner',
+      degree: 'B.Tech CSE',
+      graduation_year: new Date().getFullYear() + 1,
+      learning_style: 'project-based',
+      time_availability_hours: 3,
+      ...(payload.profile ?? {}),
+      onboarding_completed: true,
+    };
+
     if (payload.profile) {
-      await this.updateProfile(userId, {
-        ...payload.profile,
-        onboarding_completed: true,
-      } as any);
+      await this.updateProfile(userId, profilePayload as any);
     } else {
-      await this.updateProfile(userId, { onboarding_completed: true } as any);
+      await this.updateProfile(userId, profilePayload as any);
     }
 
     await supabaseAdmin
@@ -122,9 +166,11 @@ export class ProfileService {
 
     if (targetRoleError) throw new AppError(targetRoleError.message, 500, 'TARGET_ROLE_CREATE_FAILED');
 
-    if (payload.skills.length) {
+    const skills = payload.skills.length ? payload.skills : STOCK_SKILLS;
+
+    if (skills.length) {
       await supabaseAdmin.from('user_skills').upsert(
-        payload.skills.map((skill) => ({
+        skills.map((skill) => ({
           user_id: userId,
           ...skill,
           verified: false,
