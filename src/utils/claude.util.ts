@@ -1,6 +1,14 @@
 import { anthropic } from '../config/anthropic.js';
 import { openai } from '../config/openai.js';
 
+const AI_JSON_TIMEOUT_MS = 12_000;
+
+function rejectAfter(ms: number) {
+  return new Promise<never>((_resolve, reject) => {
+    setTimeout(() => reject(new Error('AI response timed out')), ms);
+  });
+}
+
 export async function getClaudeText(system: string, prompt: string, maxTokens = 1800) {
   if (anthropic) {
     const response = await anthropic.messages.create({
@@ -30,7 +38,10 @@ export async function getClaudeText(system: string, prompt: string, maxTokens = 
 
 export async function getClaudeJson<T>(system: string, prompt: string, fallback: T): Promise<T> {
   try {
-    const text = await getClaudeText(system, `${prompt}\n\nReturn valid JSON only.`);
+    const text = await Promise.race([
+      getClaudeText(system, `${prompt}\n\nReturn valid JSON only.`),
+      rejectAfter(AI_JSON_TIMEOUT_MS),
+    ]);
     return JSON.parse(text) as T;
   } catch {
     return fallback;
