@@ -22,8 +22,8 @@ const anon = createClient(supabaseUrl, anonKey, {
 const DEMO_ACCOUNTS = [
   {
     name: 'Maya Sharma',
-    email: 'prototype.naya.1777572297722@example.com',
-    password: 'Prototype@123',
+    email: 'maya@zerogap.com',
+    password: 'demo1234',
     targetRole: 'Full Stack Developer',
     specialization: 'MERN + AI dashboards',
     college: 'NIET Greater Noida',
@@ -72,8 +72,8 @@ const DEMO_ACCOUNTS = [
   },
   {
     name: 'Aarav Mehta',
-    email: 'prototype.aarav.1777572297722@example.com',
-    password: 'Prototype@123',
+    email: 'aarav@zerogap.com',
+    password: 'demo1234',
     targetRole: 'Data Scientist',
     specialization: 'ML analytics + product intelligence',
     college: 'NIET Greater Noida',
@@ -123,7 +123,7 @@ const DEMO_ACCOUNTS = [
   {
     name: 'Kavya Demo Account',
     email: 'kavya@zerogap.com',
-    password: 'Kavya@12345',
+    password: 'demo1234',
     targetRole: 'Full Stack Developer',
     specialization: 'Startup product engineering',
     college: 'NIET Greater Noida',
