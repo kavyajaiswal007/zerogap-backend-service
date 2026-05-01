@@ -65,6 +65,12 @@ const DEMO_ACCOUNTS = [
         stack: ['React', 'Express', 'OpenAI', 'Supabase'],
         difficulty: 'intermediate',
       },
+      {
+        title: 'Real-Time Learning Tracker',
+        description: 'Execution logging system with streak analytics, task proof capture, and weekly consistency charts.',
+        stack: ['React', 'TypeScript', 'Express', 'Supabase', 'Charting'],
+        difficulty: 'intermediate',
+      },
     ],
     resumeTitle: 'Full Stack Developer',
     risk: { level: 'low', months: 2, probability: 86 },
@@ -113,6 +119,12 @@ const DEMO_ACCOUNTS = [
         title: 'Job Market Trend Dashboard',
         description: 'Analyzes job descriptions to detect trending skills, salaries, and role demand across India.',
         stack: ['Python', 'SQL', 'Plotly', 'Streamlit'],
+        difficulty: 'intermediate',
+      },
+      {
+        title: 'Resume Skill Extractor',
+        description: 'Parses resumes, extracts technical evidence, and compares candidate profile to market requirements.',
+        stack: ['Python', 'FastAPI', 'NLP', 'PostgreSQL'],
         difficulty: 'intermediate',
       },
     ],
@@ -164,6 +176,12 @@ const DEMO_ACCOUNTS = [
         description: 'Portfolio generator that converts roadmap tasks, certificates, and GitHub repos into hiring proof.',
         stack: ['React', 'Supabase', 'PDF', 'OpenAI'],
         difficulty: 'intermediate',
+      },
+      {
+        title: 'AI Mentor Chat',
+        description: 'Streaming mentor assistant that answers using score, roadmap, resume, jobs, and tracker context.',
+        stack: ['React', 'Express', 'OpenAI', 'SSE', 'Supabase'],
+        difficulty: 'advanced',
       },
     ],
     resumeTitle: 'Full Stack Developer',
@@ -335,8 +353,9 @@ async function resetUserRows(userId) {
     'certificates',
     'github_proofs',
     'user_skills',
-    'target_roles',
+    'roadmap_tasks',
     'roadmaps',
+    'target_roles',
     'chat_messages',
     'chat_sessions',
   ];
@@ -437,6 +456,13 @@ function roadmapStages(account) {
 }
 
 function resumeContent(account) {
+  const skillNames = account.skills.map(([name]) => name);
+  const isData = account.targetRole === 'Data Scientist';
+  const firstName = account.name.split(' ')[0];
+  const quantifiedImpact = isData
+    ? 'improved model validation accuracy by 18% and reduced manual analysis time by 35%'
+    : 'reduced dashboard load friction by 40% and improved demo task completion by 32%';
+
   return {
     basics: {
       name: account.name,
@@ -447,26 +473,42 @@ function resumeContent(account) {
       github: `https://github.com/${account.github}`,
       portfolio: account.portfolio,
     },
-    summary: `${account.name} is a ${account.resumeTitle} candidate with strong hands-on proof across ${account.matched.slice(0, 5).join(', ')}. Built production-style projects with measurable outcomes, clean documentation, and role-specific technical depth. Targeting high-growth Indian tech teams where product execution and learning velocity matter.`,
+    summary: `${account.resumeTitle} candidate with verified proof across ${account.matched.slice(0, 6).join(', ')} and a ${account.xp.streak}-day execution streak. Built production-style projects with measurable outcomes, clean documentation, and recruiter-ready walkthroughs. Targeting high-growth Indian tech teams that value ownership, product thinking, and fast learning velocity.`,
     skills: {
       technical: [
-        account.skills.slice(0, 5).map(([name]) => name).join(', '),
-        account.skills.slice(5, 10).map(([name]) => name).join(', '),
+        skillNames.slice(0, 4).join(', '),
+        skillNames.slice(4, 8).join(', '),
+        isData ? 'PostgreSQL, Jupyter, Streamlit, Feature Stores, Model Evaluation' : 'PostgreSQL, Supabase, Redis, REST APIs, Authentication',
+        isData ? 'EDA, Feature Engineering, Regression, Classification, Experiment Tracking' : 'System Design Basics, API Integration, Responsive UI, Performance Optimization',
       ],
-      soft: ['Communication', 'Ownership', 'Problem Solving'],
-      tools: ['GitHub', 'Supabase', 'Vercel', 'Postman', 'VS Code'],
+      soft: ['Communication', 'Ownership', 'Problem Solving', 'Documentation', 'Stakeholder Thinking'],
+      tools: ['GitHub', 'Supabase', 'Vercel', 'Postman', 'VS Code', 'Notion', 'Figma'],
     },
     experience: [
       {
-        title: `${account.resumeTitle} Intern`,
+        title: `${account.resumeTitle} Trainee`,
         company: 'ZeroGap Labs',
         location: 'Remote',
         start_date: 'Jan 2026',
         end_date: 'Present',
         bullets: [
-          `Built ${account.projects[0].title} with ${account.projects[0].stack.slice(0, 4).join(', ')} and improved demo readiness by 42%.`,
-          'Created clean API contracts, dashboard views, and measurable execution logs for weekly review.',
-          'Converted roadmap tasks into portfolio proof with quantified outcomes and interview-ready notes.',
+          `Built ${account.projects[0].title} with ${account.projects[0].stack.slice(0, 5).join(', ')} and ${quantifiedImpact}.`,
+          `Converted ${account.xp.streak}+ days of roadmap execution into proof logs, GitHub notes, and ATS-ready resume bullets.`,
+          `Integrated score, roadmap, resume, jobs, and mentor modules into a single demo workflow used for weekly review.`,
+          `Wrote clean documentation, setup steps, API notes, and project walkthroughs to make the work recruiter-readable.`,
+        ],
+      },
+      {
+        title: isData ? 'Data Analytics Project Intern' : 'Product Engineering Intern',
+        company: 'Campus Innovation Cell',
+        location: account.location,
+        start_date: 'Aug 2025',
+        end_date: 'Dec 2025',
+        bullets: [
+          `Designed a ${isData ? 'student placement analytics report' : 'student dashboard prototype'} for 120+ sample profiles using ${account.matched.slice(0, 3).join(', ')}.`,
+          `Created reusable templates for weekly progress reviews, reducing manual tracking effort by 30%.`,
+          `Collaborated with peers to review requirements, prioritize features, and present a working demo to mentors.`,
+          `Maintained structured issue notes, sprint checklist, and final handoff documentation for future batches.`,
         ],
       },
     ],
@@ -477,7 +519,9 @@ function resumeContent(account) {
         location: account.location,
         graduation: String(account.graduationYear),
         cgpa: '8.4/10',
-        relevant_courses: account.matched.slice(0, 4),
+        relevant_courses: isData
+          ? ['Data Structures', 'Probability & Statistics', 'Machine Learning', 'Database Systems', 'Data Visualization']
+          : ['Data Structures', 'DBMS', 'Operating Systems', 'Computer Networks', 'Software Engineering'],
       },
     ],
     projects: account.projects.map((project) => ({
@@ -486,19 +530,22 @@ function resumeContent(account) {
       github_url: `https://github.com/${account.github}/${project.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
       live_url: account.portfolio,
       bullets: [
-        project.description,
-        'Implemented core flows, analytics, validation, and a polished investor-demo UI.',
-        'Documented setup, architecture, and next iteration plan for recruiters.',
+        `${project.description} Shipped a working prototype with authentication, data views, and polished demo states.`,
+        `Implemented core flows, validation, analytics, and ${isData ? 'model/report evaluation' : 'responsive UI'} with clear success metrics.`,
+        `Documented setup, architecture, screenshots, limitations, and next iteration plan for recruiter review.`,
       ],
     })),
     certifications: [
       { name: `${account.resumeTitle} Career Track`, issuer: 'ZeroGap Academy', date: 'Apr 2026', url: account.portfolio },
       { name: 'GitHub Proof Review', issuer: 'ZeroGap Mentor', date: 'May 2026', url: `https://github.com/${account.github}` },
+      { name: isData ? 'Applied Machine Learning Foundations' : 'Full Stack Project Foundations', issuer: 'ZeroGap Labs', date: 'Mar 2026', url: account.portfolio },
     ],
     achievements: [
-      `${account.xp.streak}-day execution streak with ${account.xp.total}+ XP earned.`,
-      `Top ${100 - account.benchmark.national}% national readiness percentile for ${account.targetRole}.`,
-      `Built ${account.projects.length} portfolio projects aligned to live market skill gaps.`,
+      `${account.xp.streak}-day execution streak with ${account.xp.total}+ XP earned through roadmap tasks, proof logs, and project work.`,
+      `Ranked in the top ${100 - account.benchmark.national}% national readiness band for ${account.targetRole} demo benchmarks.`,
+      `Built ${account.projects.length} portfolio projects aligned to live market skill gaps and interview discussion points.`,
+      `Matched ${account.matched.length} required skills and converted ${account.partial.length} partial skills into weekly learning targets.`,
+      `${firstName} maintains a recruiter-ready profile with resume, GitHub proof, job matches, and consistency analytics.`,
     ],
   };
 }
