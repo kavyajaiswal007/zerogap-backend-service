@@ -36,7 +36,7 @@ const DEMO_ACCOUNTS = [
     linkedin: 'https://linkedin.com/in/maya-zero-demo',
     portfolio: 'https://maya-zero-demo.vercel.app',
     score: { final: 84, skills: 86, project: 82, activity: 84 },
-    xp: { total: 3240, level: 7, streak: 18, longest: 27 },
+    xp: { total: 6120, level: 13, streak: 31, longest: 34 },
     skills: [
       ['React', 92, true, 'github'],
       ['TypeScript', 86, true, 'github'],
@@ -92,7 +92,7 @@ const DEMO_ACCOUNTS = [
     linkedin: 'https://linkedin.com/in/aarav-data-demo',
     portfolio: 'https://aarav-data-lab.vercel.app',
     score: { final: 81, skills: 84, project: 78, activity: 79 },
-    xp: { total: 2860, level: 6, streak: 14, longest: 21 },
+    xp: { total: 5480, level: 11, streak: 30, longest: 31 },
     skills: [
       ['Python', 94, true, 'github'],
       ['SQL', 88, true, 'project'],
@@ -148,7 +148,7 @@ const DEMO_ACCOUNTS = [
     linkedin: 'https://linkedin.com/in/kavya-zerogap-demo',
     portfolio: 'https://zerogap-frontend-002.vercel.app',
     score: { final: 76, skills: 78, project: 72, activity: 80 },
-    xp: { total: 2380, level: 5, streak: 11, longest: 18 },
+    xp: { total: 4960, level: 10, streak: 30, longest: 30 },
     skills: [
       ['React', 84, true, 'project'],
       ['JavaScript', 86, true, 'project'],
@@ -191,6 +191,15 @@ const DEMO_ACCOUNTS = [
 ];
 
 const ACHIEVEMENTS = [
+  { name: 'First Step', description: 'Complete your first task', badge_icon: 'check-circle', xp_reward: 100, condition_type: 'task_count', condition_value: { min: 1 } },
+  { name: 'Skill Seeker', description: 'Add 5 verified skills', badge_icon: 'target', xp_reward: 150, condition_type: 'verified_skills', condition_value: { min: 5 } },
+  { name: 'Proof Master', description: 'Analyze 5 GitHub repos', badge_icon: 'shield-check', xp_reward: 200, condition_type: 'proof_count', condition_value: { min: 5 } },
+  { name: 'Consistent', description: 'Maintain a 7-day streak', badge_icon: 'flame', xp_reward: 250, condition_type: 'streak_days', condition_value: { min: 7 } },
+  { name: 'On Fire', description: 'Maintain a 30-day streak', badge_icon: 'flame', xp_reward: 400, condition_type: 'streak_days', condition_value: { min: 30 } },
+  { name: 'Rising Star', description: 'Reach skill score 50', badge_icon: 'star', xp_reward: 250, condition_type: 'skill_score', condition_value: { min: 50 } },
+  { name: 'Job Ready', description: 'Reach skill score 80', badge_icon: 'rocket', xp_reward: 500, condition_type: 'skill_score', condition_value: { min: 80 } },
+  { name: 'Roadmap Warrior', description: 'Complete all roadmap stages', badge_icon: 'map', xp_reward: 300, condition_type: 'roadmap_completion', condition_value: { min: 100 } },
+  { name: 'Interview Ready', description: 'Generate ATS resume and reach score 75', badge_icon: 'file-text', xp_reward: 350, condition_type: 'resume_and_score', condition_value: { min: 75 } },
   { name: 'First Task Complete', description: 'Completed the first roadmap task', badge_icon: 'check-circle', xp_reward: 100, condition_type: 'tasks_completed', condition_value: { count: 1 } },
   { name: '7 Day Streak', description: 'Stayed active for a full week', badge_icon: 'flame', xp_reward: 250, condition_type: 'streak_days', condition_value: { count: 7 } },
   { name: 'Portfolio Builder', description: 'Built a portfolio-quality project', badge_icon: 'briefcase', xp_reward: 300, condition_type: 'projects_completed', condition_value: { count: 1 } },
@@ -417,39 +426,43 @@ function roadmapStages(account) {
         ['Revise core concepts with notes', 'learn', true, 70],
         ['Build a mini feature and document it', 'build', true, 90],
         ['Push proof to GitHub', 'practice', true, 80],
+        ['Write a polished project README', 'practice', true, 60],
       ],
     },
     {
       title: isData ? 'Modeling Sprint' : 'Backend + Database Sprint',
       description: isData ? 'Train, evaluate, and explain models.' : 'Build reliable APIs, auth, and database workflows.',
       skills_to_learn: isData ? ['Machine Learning', 'Feature Engineering'] : ['Node.js', 'PostgreSQL', 'Redis'],
-      completion: 75,
+      completion: 100,
       tasks: [
         ['Complete implementation sprint', 'build', true, 100],
         ['Write edge-case checklist', 'practice', true, 70],
-        [`Improve ${missing[0] ?? 'core skill'}`, 'learn', false, 60],
+        [`Improve ${missing[0] ?? 'core skill'}`, 'learn', true, 60],
+        ['Record a 90-second feature walkthrough', 'apply', true, 80],
       ],
     },
     {
       title: isData ? 'Deployment + Storytelling' : 'System Design + Testing',
       description: isData ? 'Package notebooks into an app and tell a data story.' : 'Add tests, monitoring, and architecture docs.',
       skills_to_learn: missing,
-      completion: 40,
+      completion: 65,
       tasks: [
         ['Create portfolio case study', 'build', true, 100],
-        ['Prepare interview notes', 'practice', false, 60],
+        ['Prepare interview notes', 'practice', true, 60],
         ['Record a project demo', 'apply', false, 50],
+        [`Ship one proof for ${missing[1] ?? missing[0] ?? 'advanced skill'}`, 'build', false, 80],
       ],
     },
     {
       title: 'Interview + Apply',
       description: 'Apply to roles with tailored proof and a tight resume.',
       skills_to_learn: ['Resume', 'Interview', 'Job Applications'],
-      completion: 15,
+      completion: 30,
       tasks: [
-        ['Tailor ATS resume for 5 jobs', 'apply', false, 80],
+        ['Tailor ATS resume for 5 jobs', 'apply', true, 80],
         ['Complete one mock interview', 'practice', false, 70],
         ['Apply to top-fit roles', 'apply', false, 100],
+        ['Follow up with recruiter-ready proof links', 'apply', false, 70],
       ],
     },
   ];
@@ -660,6 +673,8 @@ async function seedAccount(account, achievementIds, jobRows) {
       predicted_at: new Date().toISOString(),
     }));
 
+    const stagesForAccount = roadmapStages(account);
+    const roadmapCompletion = Math.round(stagesForAccount.reduce((sum, stage) => sum + stage.completion, 0) / stagesForAccount.length);
     const { data: roadmap } = await check('insert roadmap', admin.from('roadmaps').insert({
       user_id: userId,
       target_role_id: targetRole.id,
@@ -667,13 +682,13 @@ async function seedAccount(account, achievementIds, jobRows) {
       total_stages: 4,
       estimated_weeks: 8,
       is_active: true,
-      completion_percentage: 57,
+      completion_percentage: roadmapCompletion,
       generated_by_ai: true,
       created_at: daysAgo(20),
       updated_at: new Date().toISOString(),
     }).select().single());
 
-    for (const [stageIndex, stage] of roadmapStages(account).entries()) {
+    for (const [stageIndex, stage] of stagesForAccount.entries()) {
       const { data: stageRow } = await check(`insert roadmap stage ${stage.title}`, admin.from('roadmap_stages').insert({
         roadmap_id: roadmap.id,
         stage_number: stageIndex + 1,
@@ -813,21 +828,29 @@ async function seedAccount(account, achievementIds, jobRows) {
       ]));
     });
 
-    await check('insert activity logs', admin.from('execution_logs').insert(
-      Array.from({ length: account.xp.streak }, (_, index) => {
-        const day = account.xp.streak - index - 1;
-        return {
+    const activityActions = [
+      'Completed roadmap sprint',
+      'Improved portfolio proof',
+      'Practiced interview questions',
+      'Updated ATS resume bullets',
+      'Reviewed job match requirements',
+      'Added GitHub proof notes',
+    ];
+    const activityRows = Array.from({ length: Math.max(30, account.xp.streak) }, (_, index) => {
+      const day = Math.max(30, account.xp.streak) - index - 1;
+      const rowsToday = day <= 6 ? 2 : 1;
+      return Array.from({ length: rowsToday }, (__, rowIndex) => ({
           user_id: userId,
-          action: index % 3 === 0 ? 'Completed roadmap sprint' : index % 3 === 1 ? 'Improved portfolio proof' : 'Practiced interview questions',
-          time_spent_minutes: 45 + (index % 4) * 15,
-          output_description: `Demo progress for ${account.targetRole}`,
+          action: activityActions[(index + rowIndex) % activityActions.length],
+          time_spent_minutes: 45 + ((index + rowIndex) % 4) * 15,
+          output_description: `${account.name.split(' ')[0]} worked on ${account.targetRole} proof, roadmap output, and recruiter-ready notes.`,
           proof_url: account.portfolio,
           date: dateOnly(day),
-          xp_earned: 25 + (index % 3) * 10,
+          xp_earned: 25 + ((index + rowIndex) % 3) * 10,
           created_at: daysAgo(day),
-        };
-      }),
-    ));
+        }));
+    }).flat();
+    await check('insert activity logs', admin.from('execution_logs').insert(activityRows));
 
     await check('insert job matches', admin.from('user_job_matches').upsert(
       jobRows
@@ -857,7 +880,7 @@ async function seedAccount(account, achievementIds, jobRows) {
     ));
 
     await check('insert achievements earned', admin.from('user_achievements').upsert(
-      Object.values(achievementIds).slice(0, account.score.final >= 80 ? 6 : 5).map((achievement_id) => ({
+      Object.values(achievementIds).map((achievement_id) => ({
         user_id: userId,
         achievement_id,
         earned_at: daysAgo(Math.floor(Math.random() * 12)),
