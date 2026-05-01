@@ -2,6 +2,7 @@ import { supabase, supabaseAdmin } from '../../config/supabase.js';
 import { env } from '../../config/env.js';
 import { AppError } from '../../utils/error.util.js';
 import { getProfileOrThrow } from '../../utils/db.util.js';
+import { randomBytes } from 'crypto';
 
 type RegisterInput = {
   email: string;
@@ -10,6 +11,26 @@ type RegisterInput = {
   role?: string;
   jobTitle?: string;
   job_title?: string;
+};
+
+type GoogleTokenResponse = {
+  access_token?: string;
+  expires_in?: number;
+  scope?: string;
+  token_type?: string;
+  id_token?: string;
+  error?: string;
+  error_description?: string;
+};
+
+type GoogleUserInfo = {
+  id?: string;
+  email?: string;
+  verified_email?: boolean;
+  name?: string;
+  given_name?: string;
+  family_name?: string;
+  picture?: string;
 };
 
 export class AuthService {
@@ -192,6 +213,162 @@ export class AuthService {
       throw new AppError(error?.message ?? 'Unable to start OAuth flow', 400, 'OAUTH_START_FAILED');
     }
     return data.url;
+  }
+
+  static googleOAuthRedirect(redirectTo: string) {
+    if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
+      throw new AppError('Google OAuth is not configured', 500, 'GOOGLE_OAUTH_NOT_CONFIGURED');
+    }
+
+    const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+    url.searchParams.set('client_id', env.GOOGLE_CLIENT_ID);
+    url.searchParams.set('redirect_uri', redirectTo);
+    url.searchParams.set('response_type', 'code');
+    url.searchParams.set('scope', 'openid email profile');
+    url.searchParams.set('access_type', 'offline');
+    url.searchParams.set('prompt', 'select_account');
+    return url.toString();
+  }
+
+  private static async findAuthUserByEmail(email: string) {
+    const normalized = email.toLowerCase();
+
+    for (let page = 1; page <= 5; page += 1) {
+      const { data, error } = await supabaseAdmin.auth.admin.listUsers({
+        page,
+        perPage: 1000,
+      });
+
+      if (error) {
+        throw new AppError(error.message, 500, 'AUTH_USER_LOOKUP_FAILED');
+      }
+
+      const found = data.users.find((user) => user.email?.toLowerCase() === normalized);
+      if (found) return found;
+      if (data.users.length < 1000) return null;
+    }
+
+    return null;
+  }
+
+  static async completeGoogleOAuth(code: string, redirectTo: string) {
+    if (!code) {
+      throw new AppError('Missing Google authorization code', 400, 'GOOGLE_CODE_MISSING');
+    }
+
+    if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
+      throw new AppError('Google OAuth is not configured', 500, 'GOOGLE_OAUTH_NOT_CONFIGURED');
+    }
+
+    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        code,
+        client_id: env.GOOGLE_CLIENT_ID,
+        client_secret: env.GOOGLE_CLIENT_SECRET,
+        redirect_uri: redirectTo,
+        grant_type: 'authorization_code',
+      }),
+    });
+
+    const tokenJson = await tokenResponse.json() as GoogleTokenResponse;
+    if (!tokenResponse.ok || !tokenJson.access_token) {
+      throw new AppError(tokenJson.error_description ?? tokenJson.error ?? 'Google token exchange failed', 400, 'GOOGLE_TOKEN_EXCHANGE_FAILED');
+    }
+
+    const userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+      headers: {
+        Authorization: `Bearer ${tokenJson.access_token}`,
+        Accept: 'application/json',
+      },
+    });
+
+    const googleUser = await userInfoResponse.json() as GoogleUserInfo;
+    if (!userInfoResponse.ok || !googleUser.email) {
+      throw new AppError('Unable to read Google profile email', 400, 'GOOGLE_PROFILE_FAILED');
+    }
+
+    const email = googleUser.email.toLowerCase();
+    const fullName = googleUser.name ?? email.split('@')[0];
+    const password = `${randomBytes(32).toString('base64url')}Aa1!`;
+    const existingUser = await this.findAuthUserByEmail(email);
+    let userId = existingUser?.id;
+    const isNewUser = !existingUser;
+
+    if (existingUser) {
+      const { error } = await supabaseAdmin.auth.admin.updateUserById(existingUser.id, {
+        password,
+        email_confirm: true,
+        user_metadata: {
+          ...existingUser.user_metadata,
+          full_name: fullName,
+          name: fullName,
+          avatar_url: googleUser.picture,
+          picture: googleUser.picture,
+          provider: 'google',
+          google_id: googleUser.id,
+        },
+      });
+
+      if (error) {
+        throw new AppError(error.message, 500, 'GOOGLE_USER_UPDATE_FAILED');
+      }
+    } else {
+      const { data, error } = await supabaseAdmin.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,
+        user_metadata: {
+          full_name: fullName,
+          name: fullName,
+          avatar_url: googleUser.picture,
+          picture: googleUser.picture,
+          provider: 'google',
+          google_id: googleUser.id,
+        },
+      });
+
+      if (error || !data.user) {
+        throw new AppError(error?.message ?? 'Unable to create Google user', 500, 'GOOGLE_USER_CREATE_FAILED');
+      }
+
+      userId = data.user.id;
+    }
+
+    const { data: sessionData, error: sessionError } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (sessionError || !sessionData.session || !sessionData.user) {
+      throw new AppError(sessionError?.message ?? 'Unable to create Google session', 500, 'GOOGLE_SESSION_FAILED');
+    }
+
+    await this.bootstrapUserRows(userId ?? sessionData.user.id, {
+      email,
+      password,
+      fullName,
+      role: 'student',
+    });
+
+    await supabaseAdmin
+      .from('profiles')
+      .update({
+        avatar_url: googleUser.picture ?? null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', userId ?? sessionData.user.id);
+
+    const profile = await getProfileOrThrow(userId ?? sessionData.user.id);
+
+    return {
+      user: profile,
+      session: sessionData.session,
+      isNewUser,
+    };
   }
 
   static async exchangeOAuthCode(code: string) {

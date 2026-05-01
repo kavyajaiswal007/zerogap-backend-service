@@ -101,7 +101,8 @@ export class AuthController {
 
   static async google(req: Request, res: Response, next: NextFunction) {
     try {
-      const url = await AuthService.oauthRedirect('google', `${getBackendBase(req)}/api/auth/google/callback`);
+      const redirectTo = env.GOOGLE_CALLBACK_URL ?? `${getBackendBase(req)}/api/auth/google/callback`;
+      const url = AuthService.googleOAuthRedirect(redirectTo);
       res.redirect(url);
     } catch (error) {
       next(error);
@@ -157,32 +158,29 @@ export class AuthController {
 
   static async googleCallback(req: Request, res: Response, next: NextFunction) {
     try {
+      const oauthError = String(req.query.error_description ?? req.query.error ?? '');
+      if (oauthError) {
+        const redirectUrl = new URL('/auth/callback', env.FRONTEND_URL);
+        redirectUrl.searchParams.set('error_description', oauthError);
+        res.redirect(redirectUrl.toString());
+        return;
+      }
+
       const code = String(req.query.code ?? '');
-      const data = await AuthService.exchangeOAuthCode(code);
-      const existingProfile = await supabaseAdmin
-        .from('profiles')
-        .select('id,onboarding_completed')
-        .eq('id', data.user.id)
-        .maybeSingle();
-      const providerToken = String((data.session as any).provider_token ?? '').trim();
-      const googleProfile = await fetchProviderJson<{
-        id?: string;
-        email?: string;
-        name?: string;
-        picture?: string;
-      }>('https://www.googleapis.com/oauth2/v2/userinfo', providerToken);
-
-      await supabaseAdmin.from('profiles').upsert({
-        id: data.user.id,
-        email: data.user.email ?? googleProfile?.email,
-        full_name: googleProfile?.name ?? data.user.user_metadata.full_name ?? data.user.user_metadata.name,
-        avatar_url: googleProfile?.picture ?? data.user.user_metadata.avatar_url,
-      });
-
-      const isNewUser = !existingProfile.data?.onboarding_completed;
-      res.redirect(buildFrontendCallbackUrl(data.session.access_token, data.session.refresh_token, isNewUser));
+      const redirectTo = env.GOOGLE_CALLBACK_URL ?? `${getBackendBase(req)}/api/auth/google/callback`;
+      const data = await AuthService.completeGoogleOAuth(code, redirectTo);
+      res.redirect(buildFrontendCallbackUrl(data.session.access_token, data.session.refresh_token, data.isNewUser));
     } catch (error) {
-      next(error);
+      logger.warn({
+        message: 'Google OAuth callback failed',
+        error: error instanceof Error ? error.message : String(error),
+      });
+      const redirectUrl = new URL('/auth/callback', env.FRONTEND_URL);
+      redirectUrl.searchParams.set(
+        'error_description',
+        error instanceof Error ? error.message : 'Google sign-in failed',
+      );
+      res.redirect(redirectUrl.toString());
     }
   }
 
