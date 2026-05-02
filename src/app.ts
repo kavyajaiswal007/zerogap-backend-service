@@ -58,15 +58,32 @@ app.set('trust proxy', 1);
 
 const allowedOrigins = new Set([
   env.FRONTEND_URL,
+  'https://myzerogap.vercel.app',
+  'https://zerogap-frontend-002.vercel.app',
+  'https://zerogap-frontend-002-kavya-jaiswals-projects.vercel.app',
+  'https://zerogap-frontend-002-kavyajaiswal007-kavya-jaiswals-projects.vercel.app',
   'http://localhost:3000',
   'http://127.0.0.1:3000',
   'http://localhost:5173',
   'http://127.0.0.1:5173',
 ]);
 
+function isAllowedOrigin(origin: string) {
+  if (allowedOrigins.has(origin)) {
+    return true;
+  }
+
+  try {
+    const { hostname } = new URL(origin);
+    return hostname.endsWith('.vercel.app') && hostname.startsWith('zerogap-frontend-002');
+  } catch {
+    return false;
+  }
+}
+
 app.use(cors({
   origin(origin, callback) {
-    if (!origin || allowedOrigins.has(origin)) {
+    if (!origin || isAllowedOrigin(origin)) {
       callback(null, true);
       return;
     }
