@@ -28,6 +28,7 @@ import { failurePredictionRouter } from './modules/failurePrediction/failurePred
 import { projectBuilderRouter } from './modules/projectBuilder/projectBuilder.routes.js';
 import { collegePanelRouter } from './modules/collegePanel/collegePanel.routes.js';
 import { dashboardRouter } from './modules/dashboard/dashboard.routes.js';
+import { learnPathRouter } from './routes/learnpath.routes.js';
 
 const swaggerSpec = swaggerJsdoc({
   definition: {
@@ -58,7 +59,6 @@ app.set('trust proxy', 1);
 
 const allowedOrigins = new Set([
   env.FRONTEND_URL,
-  'https://myzerogap.vercel.app',
   'https://zerogap-frontend-002.vercel.app',
   'https://zerogap-frontend-002-kavya-jaiswals-projects.vercel.app',
   'https://zerogap-frontend-002-kavyajaiswal007-kavya-jaiswals-projects.vercel.app',
@@ -159,6 +159,7 @@ app.use('/api', achievementsRouter);
 app.use('/api', failurePredictionRouter);
 app.use('/api', projectBuilderRouter);
 app.use('/api', collegePanelRouter);
+app.use('/api/learnpath', learnPathRouter);
 
 app.use(notFoundMiddleware);
 app.use(errorMiddleware);

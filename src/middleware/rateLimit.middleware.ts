@@ -69,3 +69,19 @@ export const aiRateLimiter = createRateLimiter(
   'ai',
   (req) => req.user?.id ?? req.ip,
 );
+
+export const quizSubmitRateLimiter = createRateLimiter(
+  60 * 60 * 1000,
+  5,
+  'Quiz attempt limit reached for this video. Please try again later.',
+  'learnpath-quiz',
+  (req) => `${req.user?.id ?? req.ip}:${req.params.videoId ?? 'video'}`,
+);
+
+export const certificateRateLimiter = createRateLimiter(
+  60 * 60 * 1000,
+  3,
+  'Certificate generation limit reached. Please try again later.',
+  'learnpath-certificate',
+  (req) => `${req.user?.id ?? req.ip}:${req.params.playlistId ?? 'playlist'}`,
+);
