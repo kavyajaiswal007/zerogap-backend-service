@@ -158,8 +158,8 @@ app.use('/api', executionTrackerRouter);
 app.use('/api', achievementsRouter);
 app.use('/api', failurePredictionRouter);
 app.use('/api', projectBuilderRouter);
-app.use('/api', collegePanelRouter);
 app.use('/api/learnpath', learnPathRouter);
+app.use('/api', collegePanelRouter);
 
 app.use(notFoundMiddleware);
 app.use(errorMiddleware);
