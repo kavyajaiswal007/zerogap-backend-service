@@ -14,6 +14,14 @@ peerBenchmarkRouter.get('/benchmark/me', requireAuth, async (req: AuthenticatedR
   }
 });
 
+peerBenchmarkRouter.post('/benchmark/recalculate', requireAuth, async (req: AuthenticatedRequest, res, next) => {
+  try {
+    sendSuccess(res, await PeerBenchmarkService.recalculate(req.user!.id), 'Benchmark recalculated');
+  } catch (error) {
+    next(error);
+  }
+});
+
 peerBenchmarkRouter.get('/benchmark/college', requireAuth, async (req: AuthenticatedRequest, res, next) => {
   try {
     const data = await PeerBenchmarkService.getMine(req.user!.id);

@@ -179,6 +179,14 @@ Return JSON:
     return this.getRoadmap(data.id);
   }
 
+  static async getOrGenerate(userId: string) {
+    const existing = await this.getActive(userId);
+    if (existing) return existing;
+
+    this.generate(userId).catch(() => {});
+    return null;
+  }
+
   static async getRoadmap(id: string) {
     const { data: roadmap, error } = await supabaseAdmin.from('roadmaps').select('*').eq('id', id).single();
     if (error) throw new AppError(error.message, 500, 'DB_ERROR');

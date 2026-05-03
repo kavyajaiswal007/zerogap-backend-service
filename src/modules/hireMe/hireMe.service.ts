@@ -478,11 +478,10 @@ async function getOrFetchJobs(jobTitle: string, forceRefresh = false): Promise<J
   return (fallback ?? []).map((job) => normalizeJobListing(job, jobTitle));
 }
 
-function generateMatchReason(fitPct: number, matchedSkills: string[], role: string): string {
-  if (fitPct >= 80) return `Strong match - ${matchedSkills.slice(0, 2).join(', ') || role} align well`;
-  if (fitPct >= 60) return `Good fit - ${matchedSkills[0] ?? role} experience valued`;
-  if (fitPct >= 40) return `Stretch role - learn ${Math.max(1, 5 - matchedSkills.length)} more skills to qualify`;
-  return `Growth opportunity - ${role} trajectory fits`;
+function generateMatchReason(matchedSkills: string[]): string {
+  return matchedSkills.length
+    ? `Strong match on ${matchedSkills.slice(0, 2).join(' and ')}`
+    : 'Emerging match - build proof to unlock full fit score';
 }
 
 function sortMatches<T extends { fit_percentage: number; job_listings: JobListing }>(matches: T[]) {
@@ -591,8 +590,8 @@ Use REAL Indian tech companies: Razorpay, Zepto, CRED, Meesho, Swiggy, PhonePe, 
         job,
         fit_percentage: fitPercentage,
         missing_skills: missing.slice(0, 5),
-        next_steps: missing.slice(0, 3).map((skill) => `Practice ${skill} with one portfolio-quality project.`),
-        match_reason: generateMatchReason(fitPercentage, matched, role),
+        next_steps: missing.slice(0, 3).map((skill) => `Build a ${skill} project and add it to GitHub`),
+        match_reason: generateMatchReason(matched),
       };
     });
 

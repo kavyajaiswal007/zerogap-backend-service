@@ -23,7 +23,7 @@ hireMeRouter.get('/hire-me/matches', requireAuth, async (req: AuthenticatedReque
     const matches = await HireMeService.getTopMatches(userId, 50);
 
     if (isRedisEnabled()) {
-      await redis.set(cacheKey, JSON.stringify(matches), 'EX', 1800);
+      await redis.set(cacheKey, JSON.stringify(matches), 'EX', 21600);
     }
 
     sendSuccess(res, matches, `${matches.length} job matches found`);
@@ -52,7 +52,7 @@ hireMeRouter.post('/hire-me/refresh-matches', requireAuth, async (req: Authentic
     const matches = await HireMeService.getTopMatches(userId, 50, true);
 
     if (isRedisEnabled()) {
-      await redis.set(cacheKey, JSON.stringify(matches), 'EX', 1800);
+      await redis.set(cacheKey, JSON.stringify(matches), 'EX', 21600);
     }
 
     sendSuccess(res, matches, `Refreshed - ${matches.length} matches found`);
@@ -69,7 +69,23 @@ hireMeRouter.put('/hire-me/match/:id/save', requireAuth, async (req: Authenticat
   }
 });
 
+hireMeRouter.post('/hire-me/match/:id/save', requireAuth, async (req: AuthenticatedRequest, res, next) => {
+  try {
+    sendSuccess(res, await HireMeService.updateSaved(req.user!.id, String(req.params.id), Boolean(req.body.saved ?? true)), 'Match saved state updated');
+  } catch (error) {
+    next(error);
+  }
+});
+
 hireMeRouter.put('/hire-me/match/:id/apply', requireAuth, async (req: AuthenticatedRequest, res, next) => {
+  try {
+    sendSuccess(res, await HireMeService.updateApplied(req.user!.id, String(req.params.id)), 'Match marked as applied');
+  } catch (error) {
+    next(error);
+  }
+});
+
+hireMeRouter.post('/hire-me/match/:id/apply', requireAuth, async (req: AuthenticatedRequest, res, next) => {
   try {
     sendSuccess(res, await HireMeService.updateApplied(req.user!.id, String(req.params.id)), 'Match marked as applied');
   } catch (error) {

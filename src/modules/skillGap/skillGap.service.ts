@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '../../config/supabase.js';
+import { redis, isRedisEnabled } from '../../config/redis.js';
 import { calculateSkillScore } from '../../utils/scoreCalculator.util.js';
 import { getClaudeJson } from '../../utils/claude.util.js';
 import { getActiveTargetRole, getUserSkills } from '../../utils/db.util.js';
@@ -130,9 +131,12 @@ export class SkillGapService {
       'GitHub Actions',
       'Resume Proof Writing',
     ])).slice(0, 15);
+    const fallbackSkillScores = Object.fromEntries(
+      fallbackMissing.map((skill, index) => [skill, Math.max(52, 92 - index * 3)]),
+    );
 
     const system = `You are a senior career analyst for ZeroGap.
-Generate 8-12 missing skills and 10-15 partial skills. Be specific about what is missing for the target role. Each missing skill should include a reason why it matters.
+Generate 8-12 missing skills and 10-15 partial skills. Be specific about what is missing for the target role. Each missing skill should include a reason why it matters. Also return skill_scores mapping every missing skill to a predicted market demand score from 0 to 100.
 Return ONLY valid JSON, no markdown.`;
 
     const prompt = `Target role: ${targetRole}
@@ -151,6 +155,7 @@ Return this JSON:
   "recommended_resources": [
     { "title": "resource title", "type": "playlist/course/docs", "url": "https://...", "reason": "why it helps" }
   ],
+  "skill_scores": { "System Design": 94, "Testing Strategy": 81 },
   "estimated_readiness_weeks": 8
 }`;
 
@@ -181,6 +186,7 @@ Return this JSON:
           reason: 'Turns projects into recruiter-ready production proof.',
         },
       ],
+      skill_scores: fallbackSkillScores,
       estimated_readiness_weeks: 8,
     });
   }
@@ -283,6 +289,9 @@ Return this JSON:
     );
     const enrichedMissing = enriched.missing_skills?.length ? enriched.missing_skills : missing;
     const enrichedPartial = enriched.partial_skills?.length ? enriched.partial_skills : partial;
+    const skillScores = enriched.skill_scores ?? Object.fromEntries(
+      enrichedMissing.map((skill: string, index: number) => [skill, Math.max(52, 92 - index * 3)]),
+    );
 
     const analysisPayload = {
       user_id: userId,
@@ -300,6 +309,7 @@ Return this JSON:
         recommended_resources: enriched.recommended_resources ?? [],
         estimated_readiness_weeks: enriched.estimated_readiness_weeks ?? 8,
         missing_skill_reasons: enriched.missing_skill_reasons ?? [],
+        skill_scores: skillScores,
       },
     };
 
@@ -307,6 +317,21 @@ Return this JSON:
     if (error) throw new AppError(error.message, 500, 'SKILL_GAP_ANALYSIS_FAILED');
 
     return data;
+  }
+
+  static async smartAnalyze(userId: string) {
+    if (isRedisEnabled()) {
+      const cached = await redis.get(`skill-gap:latest:${userId}`);
+      if (cached) return JSON.parse(cached);
+    }
+
+    const result = await this.analyze(userId);
+
+    if (isRedisEnabled()) {
+      await redis.set(`skill-gap:latest:${userId}`, JSON.stringify(result), 'EX', 86400);
+    }
+
+    return result;
   }
 
   static async latest(userId: string) {

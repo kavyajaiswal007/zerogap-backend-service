@@ -4,6 +4,7 @@ import type { AuthenticatedRequest } from '../../types/index.js';
 import { sendSuccess } from '../../utils/api.util.js';
 import { getProfileOrThrow } from '../../utils/db.util.js';
 import { supabaseAdmin } from '../../config/supabase.js';
+import { redis, isRedisEnabled } from '../../config/redis.js';
 import { ScoringService } from '../scoring/scoring.service.js';
 import { RoadmapService } from '../roadmap/roadmap.service.js';
 import { PeerBenchmarkService } from '../peerBenchmark/peerBenchmark.service.js';
@@ -52,13 +53,13 @@ dashboardRouter.get('/dashboard', requireAuth, async (req: AuthenticatedRequest,
     const userId = req.user!.id;
     const [profile, score, roadmap, benchmark, matches, analysis, risk, consistency] = await Promise.all([
       fastProfileBundle(userId),
-      safe(ScoringService.current(userId), {
+      safe(ScoringService.fastCurrent(userId), {
         skillsMatchPercentage: 35,
         projectQualityScore: 20,
         activityConsistencyScore: 15,
         finalScore: 30,
       }),
-      safe(RoadmapService.getActive(userId), null),
+      safe(RoadmapService.getOrGenerate(userId), null),
       safe(PeerBenchmarkService.getMine(userId), null),
       safe(HireMeService.getMatches(userId), []),
       safe(SkillGapService.latest(userId), null),
@@ -76,6 +77,56 @@ dashboardRouter.get('/dashboard', requireAuth, async (req: AuthenticatedRequest,
       risk,
       consistency,
     }, 'Dashboard fetched');
+
+    setImmediate(async () => {
+      try {
+        const latestAnalysis = await SkillGapService.latest(userId);
+        const analysisAge = latestAnalysis
+          ? Date.now() - new Date(latestAnalysis.created_at).getTime()
+          : Infinity;
+
+        if (analysisAge > 24 * 60 * 60 * 1000) {
+          await SkillGapService.analyze(userId);
+          await ScoringService.recalculate(userId);
+          await PeerBenchmarkService.recalculate(userId);
+        }
+
+        const cacheKey = `hire-me:matches:${userId}`;
+        const cached = isRedisEnabled() ? await redis.get(cacheKey) : null;
+        if (!cached) {
+          const refreshedMatches = await HireMeService.getTopMatches(userId, 50);
+          if (isRedisEnabled()) {
+            await redis.set(cacheKey, JSON.stringify(refreshedMatches), 'EX', 21600);
+          }
+        }
+      } catch {
+        // Background enrichment must never crash or slow the dashboard response.
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+dashboardRouter.post('/dashboard/trigger-analysis', requireAuth, async (req: AuthenticatedRequest, res, next) => {
+  try {
+    const userId = req.user!.id;
+
+    sendSuccess(res, { queued: true }, 'Analysis queued');
+
+    setImmediate(async () => {
+      try {
+        await SkillGapService.analyze(userId);
+        await ScoringService.recalculate(userId);
+        await PeerBenchmarkService.recalculate(userId);
+        if (isRedisEnabled()) {
+          await redis.del(`hire-me:matches:${userId}`);
+          await redis.del(`skill-gap:latest:${userId}`);
+        }
+      } catch {
+        // Silent by design: this endpoint queues enrichment, it does not block it.
+      }
+    });
   } catch (error) {
     next(error);
   }
