@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '../../config/supabase.js';
 import { calculateSkillScore } from '../../utils/scoreCalculator.util.js';
+import { getClaudeJson } from '../../utils/claude.util.js';
 import { getActiveTargetRole, getUserSkills } from '../../utils/db.util.js';
 import { AppError } from '../../utils/error.util.js';
 import { ExecutionTrackerService } from '../executionTracker/executionTracker.service.js';
@@ -105,6 +106,85 @@ export class SkillGapService {
     return data ?? existing;
   }
 
+  private static async enrichAnalysisWithAI(
+    targetRole: string,
+    userSkills: Array<{ skill_name: string; proficiency_level: number | null }>,
+    matched: string[],
+    partial: string[],
+    missing: string[],
+  ) {
+    const fallbackMissing = Array.from(new Set([
+      ...missing,
+      ...fallbackSkillsForRole(targetRole),
+      'System Design',
+      'Testing Strategy',
+      'Cloud Deployment',
+      'Product Thinking',
+    ])).slice(0, 12);
+    const fallbackPartial = Array.from(new Set([
+      ...partial,
+      ...userSkills.map((skill) => skill.skill_name),
+      'API Design',
+      'Database Optimization',
+      'Performance Debugging',
+      'GitHub Actions',
+      'Resume Proof Writing',
+    ])).slice(0, 15);
+
+    const system = `You are a senior career analyst for ZeroGap.
+Generate 8-12 missing skills and 10-15 partial skills. Be specific about what is missing for the target role. Each missing skill should include a reason why it matters.
+Return ONLY valid JSON, no markdown.`;
+
+    const prompt = `Target role: ${targetRole}
+User skills: ${JSON.stringify(userSkills)}
+Matched skills: ${matched.join(', ')}
+Partial skills: ${partial.join(', ')}
+Missing skills: ${missing.join(', ')}
+
+Return this JSON:
+{
+  "missing_skills": ["8-12 skill names"],
+  "partial_skills": ["10-15 skill names the user has but must improve"],
+  "missing_skill_reasons": [
+    { "skill": "System Design", "reason": "Why this matters for the target role" }
+  ],
+  "recommended_resources": [
+    { "title": "resource title", "type": "playlist/course/docs", "url": "https://...", "reason": "why it helps" }
+  ],
+  "estimated_readiness_weeks": 8
+}`;
+
+    return getClaudeJson(system, prompt, {
+      missing_skills: fallbackMissing,
+      partial_skills: fallbackPartial,
+      missing_skill_reasons: fallbackMissing.map((skill) => ({
+        skill,
+        reason: `${skill} is important for ${targetRole} interviews and production-ready project work.`,
+      })),
+      recommended_resources: [
+        {
+          title: `${targetRole} project roadmap`,
+          type: 'playlist',
+          url: 'https://www.youtube.com/@freecodecamp',
+          reason: 'Builds role-specific proof projects and interview vocabulary.',
+        },
+        {
+          title: 'System Design fundamentals',
+          type: 'playlist',
+          url: 'https://www.youtube.com/@GauravSensei',
+          reason: 'Improves architecture discussion for interviews.',
+        },
+        {
+          title: 'Testing and deployment practice',
+          type: 'docs',
+          url: 'https://docs.github.com/en/actions',
+          reason: 'Turns projects into recruiter-ready production proof.',
+        },
+      ],
+      estimated_readiness_weeks: 8,
+    });
+  }
+
   static async getMarketSkills(role: string) {
     let { data: matrix, error } = await supabaseAdmin
       .from('skill_matrix')
@@ -194,19 +274,32 @@ export class SkillGapService {
       activityConsistencyScore: consistency.consistency_score,
     });
 
+    const enriched = await this.enrichAnalysisWithAI(
+      targetRole.job_title,
+      userSkills,
+      matched,
+      partial,
+      missing,
+    );
+    const enrichedMissing = enriched.missing_skills?.length ? enriched.missing_skills : missing;
+    const enrichedPartial = enriched.partial_skills?.length ? enriched.partial_skills : partial;
+
     const analysisPayload = {
       user_id: userId,
       target_role_id: targetRole.id,
       skill_score: breakdown.finalScore,
       matched_skills: matched,
-      missing_skills: missing,
-      partial_skills: partial,
+      missing_skills: enrichedMissing,
+      partial_skills: enrichedPartial,
       skills_match_percentage: breakdown.skillsMatchPercentage,
       project_quality_score: breakdown.projectQualityScore,
       activity_consistency_score: breakdown.activityConsistencyScore,
       analysis_data: {
         required_skills_count: requiredSkills.length,
         target_role: targetRole.job_title,
+        recommended_resources: enriched.recommended_resources ?? [],
+        estimated_readiness_weeks: enriched.estimated_readiness_weeks ?? 8,
+        missing_skill_reasons: enriched.missing_skill_reasons ?? [],
       },
     };
 

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { requireAuth } from '../../middleware/auth.middleware.js';
 import { validate } from '../../middleware/validation.middleware.js';
 import { sendSuccess } from '../../utils/api.util.js';
+import { AppError } from '../../utils/error.util.js';
 import type { AuthenticatedRequest } from '../../types/index.js';
 import {
   ProfileService,
@@ -52,7 +53,10 @@ profileRouter.post('/profile/github/sync', requireAuth, async (req: Authenticate
 
 profileRouter.post('/profile/linkedin/import', requireAuth, async (req: AuthenticatedRequest, res, next) => {
   try {
-    sendSuccess(res, await ProfileService.importLinkedIn(req.user!.id, req.body), 'LinkedIn imported');
+    const { linkedinUrl, targetRole } = req.body;
+    if (!linkedinUrl) throw new AppError('linkedinUrl is required', 400);
+    const result = await ProfileService.importLinkedIn(req.user!.id, { linkedinUrl, targetRole });
+    sendSuccess(res, result, 'LinkedIn profile imported and enriched');
   } catch (error) {
     next(error);
   }

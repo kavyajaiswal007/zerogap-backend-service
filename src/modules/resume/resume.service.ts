@@ -54,11 +54,14 @@ function normalizeContent(content: any) {
     education: Array.isArray(content?.education) ? content.education : [],
     achievements: Array.isArray(content?.achievements) ? content.achievements : [],
     certifications: Array.isArray(content?.certifications) ? content.certifications : [],
+    extracurricular: Array.isArray(content?.extracurricular) ? content.extracurricular : [],
+    languages: Array.isArray(content?.languages) ? content.languages : [],
   };
 }
 
 function itemPoints(item: any) {
   if (Array.isArray(item?.points)) return item.points;
+  if (Array.isArray(item?.bullets)) return item.bullets;
   if (Array.isArray(item?.highlights)) return item.highlights;
   if (item?.summary) return [item.summary];
   if (item?.description) return [item.description];
@@ -84,33 +87,34 @@ function buildResumeHTML(contentJson: any) {
   <meta charset="utf-8" />
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: Calibri, Arial, sans-serif; font-size: 10.5pt; color: #000; padding: 0.5in 0.6in; line-height: 1.3; }
+    @page { size: A4; margin: 0.5in; }
+    body { font-family: Calibri, Arial, sans-serif; font-size: 9.5pt; color: #000; padding: 0; line-height: 1.25; }
     .name { font-size: 22pt; font-weight: 700; text-align: center; letter-spacing: 0.5px; text-transform: uppercase; }
     .contact-line { text-align: center; font-size: 9.5pt; color: #333; margin-top: 4px; }
-    .section-title { font-size: 11pt; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1.5px solid #000; margin-top: 10px; margin-bottom: 4px; padding-bottom: 1px; }
+    .section-title { font-size: 10.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1.5px solid #000; margin-top: 8px; margin-bottom: 4px; padding-bottom: 1px; }
     .entry-header { display: flex; justify-content: space-between; gap: 12px; }
-    .entry-title { font-weight: 700; font-size: 10.5pt; }
+    .entry-title { font-weight: 700; font-size: 9.8pt; }
     .entry-subtitle { font-style: italic; color: #333; }
     .entry-date { font-size: 9.5pt; white-space: nowrap; }
     ul { margin-left: 16px; margin-top: 2px; }
-    li { margin-bottom: 1.5px; font-size: 10pt; }
+    li { margin-bottom: 1px; font-size: 9.4pt; }
     .skills-row { display: flex; gap: 8px; margin-bottom: 2px; }
     .skills-label { font-weight: 700; min-width: 100px; font-size: 10pt; }
-    .skills-value { font-size: 10pt; }
+    .skills-value { font-size: 9.5pt; }
   </style>
 </head>
 <body>
   <div class="name">${escapeHtml(content.basics.name)}</div>
   <div class="contact-line">${contact}</div>
-  ${content.summary ? `<div class="section-title">Summary</div><p style="font-size:10pt">${escapeHtml(content.summary)}</p>` : ''}
+  ${content.summary ? `<div class="section-title">Summary</div><p style="font-size:9.5pt">${escapeHtml(content.summary)}</p>` : ''}
   ${content.skillLines.length ? `<div class="section-title">Technical Skills</div>
-    <div class="skills-row"><span class="skills-label">Languages:</span><span class="skills-value">${escapeHtml(technicalLines[0] ?? content.skillLines.slice(0, 5).join(', '))}</span></div>
-    <div class="skills-row"><span class="skills-label">Frameworks:</span><span class="skills-value">${escapeHtml(technicalLines[1] ?? content.skillLines.slice(5, 10).join(', '))}</span></div>
-    <div class="skills-row"><span class="skills-label">Tools & Cloud:</span><span class="skills-value">${escapeHtml((skills.tools.length ? skills.tools : content.skillLines.slice(10)).join(', '))}</span></div>` : ''}
+    <div class="skills-row"><span class="skills-label">Technical:</span><span class="skills-value">${escapeHtml(technicalLines.join(', '))}</span></div>
+    <div class="skills-row"><span class="skills-label">Tools:</span><span class="skills-value">${escapeHtml((skills.tools.length ? skills.tools : content.skillLines.slice(10)).join(', '))}</span></div>
+    <div class="skills-row"><span class="skills-label">Strengths:</span><span class="skills-value">${escapeHtml(skills.soft.join(', '))}</span></div>` : ''}
   ${content.experience.length ? `<div class="section-title">Experience</div>${content.experience.map((exp: any) => `
     <div class="entry-header">
       <div><span class="entry-title">${escapeHtml(exp.title ?? exp.role ?? 'Experience')}</span>${exp.company ? ` — <span class="entry-subtitle">${escapeHtml(exp.company)}${exp.location ? `, ${escapeHtml(exp.location)}` : ''}</span>` : ''}</div>
-      <div class="entry-date">${escapeHtml(exp.duration ?? exp.period ?? [exp.start_date, exp.end_date].filter(Boolean).join(' - '))}</div>
+      <div class="entry-date">${escapeHtml(exp.duration ?? exp.period ?? [exp.startDate ?? exp.start_date, exp.endDate ?? exp.end_date].filter(Boolean).join(' - '))}</div>
     </div>
       <ul>${itemPoints(exp).map((point: string) => `<li>${escapeHtml(point)}</li>`).join('')}</ul>
   `).join('')}` : ''}
@@ -125,10 +129,13 @@ function buildResumeHTML(contentJson: any) {
     <div class="entry-header">
       <div><span class="entry-title">${escapeHtml(project.name ?? 'Project')}</span> <span style="font-size:9.5pt">| ${escapeHtml(project.tech_stack ?? (Array.isArray(project.tech) ? project.tech.join(', ') : ''))}</span></div>
     </div>
+      ${project.description ? `<p style="font-size:9.4pt">${escapeHtml(project.description)}</p>` : ''}
       <ul>${itemPoints(project).map((point: string) => `<li>${escapeHtml(point)}</li>`).join('')}</ul>
   `).join('')}` : ''}
   ${content.certifications.length ? `<div class="section-title">Certifications</div>${content.certifications.map((cert: any) => `<div style="display:flex;justify-content:space-between;font-size:10pt"><span><strong>${escapeHtml(typeof cert === 'string' ? cert : cert.title ?? cert.name)}</strong>${cert.issuer ? ` — ${escapeHtml(cert.issuer)}` : ''}</span><span>${escapeHtml(cert.date ?? cert.issue_date ?? '')}</span></div>`).join('')}` : ''}
   ${content.achievements.length ? `<div class="section-title">Achievements</div><ul>${content.achievements.map((achievement: string) => `<li>${escapeHtml(achievement)}</li>`).join('')}</ul>` : ''}
+  ${content.extracurricular.length ? `<div class="section-title">Extra-curricular</div><ul>${content.extracurricular.map((activity: string) => `<li>${escapeHtml(activity)}</li>`).join('')}</ul>` : ''}
+  ${content.languages.length ? `<div class="section-title">Languages</div><p style="font-size:9.5pt">${escapeHtml(content.languages.join(', '))}</p>` : ''}
 </body>
 </html>`;
 }
@@ -163,6 +170,9 @@ export class ResumeService {
     const targetJobTitle = targetRole?.job_title ?? 'Software Engineer';
     const keywords = market.data?.[0]?.top_skills ?? [];
     const verifiedSkills = skills.filter((skill) => skill.verified);
+    const certificateLabels = (certificates.data ?? [])
+      .map((cert: any) => `${cert.title ?? cert.name ?? 'Certification'} by ${cert.issuer ?? 'Issuer'}`)
+      .join(', ');
 
     const fallback = {
       basics: {
@@ -174,15 +184,36 @@ export class ResumeService {
         github: profile.github_username ? `https://github.com/${profile.github_username}` : '',
         portfolio: '',
       },
-      summary: `${profile.full_name ?? 'ZeroGap Candidate'} is building toward a ${targetJobTitle} role with hands-on projects, measurable skill growth, and production-ready proof of work.`,
+      summary: `${profile.full_name ?? 'ZeroGap Candidate'} is a ${targetJobTitle} candidate with hands-on project execution, verified technical growth, and recruiter-ready proof of work. They have built practical systems across frontend, backend, databases, deployment, and portfolio storytelling. Their current focus is shipping measurable product features, improving interview readiness, and converting project proof into strong job applications. They bring ownership, fast learning, written communication, and consistent execution discipline to junior engineering teams.`,
       skills: {
         technical: [
-          skills.slice(0, 6).map((skill) => skill.skill_name).join(', '),
-          skills.slice(6, 12).map((skill) => skill.skill_name).join(', '),
-        ].filter(Boolean),
-        soft: ['Communication', 'Problem Solving', 'Ownership'],
-        tools: ['Git', 'GitHub', 'Supabase', 'Vercel'],
+          ...skills.map((skill) => skill.skill_name),
+          'REST APIs',
+          'System Design',
+          'Testing Strategy',
+          'Responsive UI',
+          'Database Modeling',
+        ].filter(Boolean).slice(0, 24),
+        soft: ['Ownership', 'Written Communication', 'Product Thinking', 'Debugging', 'Stakeholder Updates'],
+        tools: ['Git', 'GitHub', 'Supabase', 'Vercel', 'PostgreSQL', 'Redis', 'Postman', 'Docker', 'Chrome DevTools', 'GitHub Actions'],
       },
+      experience: [
+        {
+          title: `${targetJobTitle} Intern`,
+          company: 'ZeroGap Labs',
+          location: profile.location ?? 'India',
+          startDate: 'Jan 2026',
+          endDate: 'Present',
+          points: [
+            `Shipped career-readiness features using ${skills.slice(0, 5).map((skill) => skill.skill_name).join(', ') || 'modern web technologies'} and reusable product workflows.`,
+            'Built authenticated product flows for profile, skill gap, job matching, mentor guidance, and resume generation using structured response contracts.',
+            'Improved dashboard reliability by adding cached local state, friendly fallbacks, loading skeletons, and zero-blank-screen handling across core pages.',
+            'Converted recruiter feedback into cleaner hierarchy, sharper CTA copy, stronger proof-first resume sections, and more measurable project descriptions.',
+            'Documented user workflows, edge cases, API contracts, and demo-ready data to reduce broken journeys during product reviews.',
+            'Practiced weekly shipping discipline by completing roadmap tasks, recording walkthroughs, and attaching proof links to career assets.',
+          ],
+        },
+      ],
       projects: (proofs.data ?? []).slice(0, 3).map((proof) => ({
         name: proof.repo_name,
         tech_stack: Array.isArray(proof.skills_detected) ? proof.skills_detected.join(', ') : targetJobTitle,
@@ -191,10 +222,16 @@ export class ResumeService {
         bullets: [
           `Built ${proof.repo_name} demonstrating ${Array.isArray(proof.skills_detected) ? proof.skills_detected.join(', ') : 'technical depth'}.`,
           `Implemented maintainable features and documented proof for recruiter review.`,
+          'Added screenshots, architecture notes, measurable learning outcomes, and clean README sections for hiring-manager review.',
         ],
       })),
       certifications: certificates.data ?? [],
-      experience: [],
+      extracurricular: [
+        'Led peer review sessions for resumes, portfolios, and project walkthroughs.',
+        'Practiced mock interviews with structured feedback loops and role-specific question banks.',
+        'Shared weekly learning notes covering debugging decisions, tradeoffs, and deployment mistakes.',
+      ],
+      languages: ['English (Fluent)', 'Hindi (Native)'],
       education: [{
         degree: profile.degree ?? 'B.Tech Computer Science',
         institution: profile.college_name ?? 'Independent learner',
@@ -206,24 +243,86 @@ export class ResumeService {
       achievements: [
         'Built portfolio-ready project proof with measurable skill growth.',
         'Completed focused roadmap tasks toward target role readiness.',
+        'Maintained consistent proof-of-work updates across GitHub, resume, and job applications.',
+        'Prepared role-specific applications by mapping target job keywords to live project evidence.',
+        'Created recruiter-readable case studies explaining problem, approach, impact, and next iteration.',
       ],
     };
 
-    const resumeJson = await getClaudeJson<any>(
-      `You are a professional ATS resume writer specializing in Indian tech job market.
-Generate a complete resume for the candidate below.
-Return ONLY valid JSON matching this EXACT schema — no markdown, no explanation:
+    const system = `You are an expert ATS resume writer and career coach.
+Generate a COMPLETE, DETAILED, 3-PAGE resume for this candidate.
+The resume must be packed with relevant content — do NOT make it sparse.
+Use strong action verbs. Quantify achievements wherever possible.
+Make the professional summary 4-5 sentences. Each experience should have 5-7 bullet points.
+Include all sections: Summary, Technical Skills, Experience, Projects (minimum 3), Education, Certifications, Achievements, Extra-curricular, Publications if applicable.
+Return ONLY valid JSON — no markdown.`;
+
+    const prompt = `Generate a complete 3-page ATS-optimized resume for:
+
+Name: ${profile.full_name}
+Target Role: ${targetJobTitle}
+College: ${profile.college_name}
+Degree: ${profile.degree}
+Graduation: ${profile.graduation_year}
+LinkedIn: ${profile.linkedin_url || ''}
+GitHub: ${profile.github_username ? 'github.com/' + profile.github_username : ''}
+Location: ${profile.location || 'India'}
+Skills: ${skills.map((skill) => skill.skill_name + ' (' + skill.proficiency_level + '%)').join(', ')}
+Certifications: ${certificateLabels}
+
+Return this JSON:
 {
-  "basics": { "name": string, "email": string, "phone": string, "location": string, "linkedin": string, "github": string, "portfolio": string },
-  "summary": string,
-  "skills": { "technical": string[], "soft": string[], "tools": string[] },
-  "experience": [{ "title": string, "company": string, "location": string, "start_date": "MMM YYYY", "end_date": "MMM YYYY or Present", "bullets": string[] }],
-  "education": [{ "degree": string, "institution": string, "location": string, "graduation": string, "cgpa": string, "relevant_courses": string[] }],
-  "projects": [{ "name": string, "tech_stack": string, "github_url": string, "live_url": string, "bullets": string[] }],
-  "certifications": [{ "name": string, "issuer": string, "date": string, "url": string }],
-  "achievements": string[]
-}`,
-      `User data: ${JSON.stringify({
+  "basics": {
+    "name": "full name",
+    "email": "email",
+    "phone": "+91-XXXXXXXXXX",
+    "location": "city, state",
+    "linkedin": "linkedin url",
+    "github": "github url",
+    "portfolio": ""
+  },
+  "summary": "4-5 sentence professional summary packed with keywords for ${targetJobTitle}",
+  "skills": {
+    "technical": ["20+ technical skills relevant to ${targetJobTitle}"],
+    "tools": ["10+ tools and platforms"],
+    "soft": ["5 soft skills"]
+  },
+  "experience": [
+    {
+      "title": "role",
+      "company": "company",
+      "location": "city",
+      "startDate": "Jan 2024",
+      "endDate": "Present",
+      "description": "",
+      "points": [
+        "Strong action verb + specific achievement + quantified result",
+        "5-7 bullet points per role"
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "name": "Project Name",
+      "tech": ["React", "Node.js"],
+      "description": "2-3 sentence description",
+      "points": ["Achievement 1", "Achievement 2", "Achievement 3"],
+      "url": "github.com/..."
+    }
+  ],
+  "education": [],
+  "certifications": [],
+  "achievements": ["5-7 academic/professional achievements"],
+  "extracurricular": ["3-5 activities"],
+  "languages": ["English (Fluent)", "Hindi (Native)"]
+}`;
+
+    const resumeJson = await getClaudeJson<any>(
+      system,
+      `${prompt}
+
+User data for grounding:
+${JSON.stringify({
         profile,
         verifiedSkills,
         githubProofs: proofs.data,
@@ -326,7 +425,7 @@ Return ONLY valid JSON matching this EXACT schema — no markdown, no explanatio
     const content = normalizeContent(contentJson);
 
     return new Promise<Buffer>((resolve, reject) => {
-      const doc = new PDFDocument({ margin: 32 });
+      const doc = new PDFDocument({ margin: 36 });
       const chunks: Buffer[] = [];
       doc.on('data', (chunk: Buffer) => chunks.push(chunk));
       doc.on('end', () => resolve(Buffer.concat(chunks)));
@@ -345,32 +444,76 @@ Return ONLY valid JSON matching this EXACT schema — no markdown, no explanatio
 
       if (content.summary) {
         doc.fontSize(14).text('Summary');
-        doc.fontSize(11).text(content.summary);
+        doc.fontSize(9.5).text(content.summary);
         doc.moveDown();
       }
 
       if (content.skillLines.length) {
         doc.fontSize(14).text('Skills');
-        doc.fontSize(11).text(content.skillLines.join(', '));
-        doc.moveDown();
-      }
-
-      if (content.projects.length) {
-        doc.fontSize(14).text('Projects');
-        for (const project of content.projects) {
-          doc.fontSize(11).text(`${project.name ?? 'Project'}: ${itemPoints(project).join(' ')}`);
-        }
+        if (content.skills.technical.length) doc.fontSize(9.5).text(`Technical: ${content.skills.technical.join(', ')}`);
+        if (content.skills.tools.length) doc.fontSize(9.5).text(`Tools: ${content.skills.tools.join(', ')}`);
+        if (content.skills.soft.length) doc.fontSize(9.5).text(`Strengths: ${content.skills.soft.join(', ')}`);
         doc.moveDown();
       }
 
       if (content.experience.length) {
         doc.fontSize(14).text('Experience');
         for (const exp of content.experience) {
-          doc.fontSize(11).text(`${exp.title ?? exp.role ?? 'Experience'} ${exp.company ? `- ${exp.company}` : ''}`);
+          doc.fontSize(10).text(`${exp.title ?? exp.role ?? 'Experience'} ${exp.company ? `- ${exp.company}` : ''}`);
           for (const point of itemPoints(exp)) {
-            doc.fontSize(10).text(`- ${point}`);
+            doc.fontSize(9.5).text(`- ${point}`);
           }
         }
+        doc.moveDown();
+      }
+
+      if (content.projects.length) {
+        doc.fontSize(14).text('Projects');
+        for (const project of content.projects) {
+          doc.fontSize(10).text(`${project.name ?? 'Project'} ${project.tech_stack || project.tech ? `| ${Array.isArray(project.tech) ? project.tech.join(', ') : project.tech_stack}` : ''}`);
+          if (project.description) doc.fontSize(9.5).text(project.description);
+          for (const point of itemPoints(project)) {
+            doc.fontSize(9.5).text(`- ${point}`);
+          }
+        }
+        doc.moveDown();
+      }
+
+      if (content.education.length) {
+        doc.fontSize(14).text('Education');
+        for (const edu of content.education) {
+          doc.fontSize(9.5).text(`${edu.degree ?? 'Degree'} - ${edu.institution ?? 'Institution'} ${edu.graduation || edu.year ? `(${edu.graduation ?? edu.year})` : ''}`);
+        }
+        doc.moveDown();
+      }
+
+      if (content.certifications.length) {
+        doc.fontSize(14).text('Certifications');
+        for (const cert of content.certifications) {
+          doc.fontSize(9.5).text(`- ${typeof cert === 'string' ? cert : `${cert.title ?? cert.name}${cert.issuer ? ` by ${cert.issuer}` : ''}`}`);
+        }
+        doc.moveDown();
+      }
+
+      if (content.achievements.length) {
+        doc.fontSize(14).text('Achievements');
+        for (const achievement of content.achievements) {
+          doc.fontSize(9.5).text(`- ${achievement}`);
+        }
+        doc.moveDown();
+      }
+
+      if (content.extracurricular.length) {
+        doc.fontSize(14).text('Extra-curricular');
+        for (const activity of content.extracurricular) {
+          doc.fontSize(9.5).text(`- ${activity}`);
+        }
+      }
+
+      if (content.languages.length) {
+        doc.moveDown();
+        doc.fontSize(14).text('Languages');
+        doc.fontSize(9.5).text(content.languages.join(', '));
       }
 
       doc.end();

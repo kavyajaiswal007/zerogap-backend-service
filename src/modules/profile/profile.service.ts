@@ -4,7 +4,7 @@ import { supabaseAdmin } from '../../config/supabase.js';
 import { AppError } from '../../utils/error.util.js';
 import { getProfileOrThrow, getUserSkills } from '../../utils/db.util.js';
 import { syncGithubRepos } from '../../utils/github.util.js';
-import { importLinkedInData } from '../../utils/linkedin.util.js';
+import { enrichProfileWithAI, scrapeLinkedInPublicProfile } from '../../utils/linkedin.util.js';
 import { parseResumeBuffer } from '../../utils/resumeParser.util.js';
 import { enqueueSkillAnalysis } from '../../queues/skillAnalysis.queue.js';
 import { RoadmapService } from '../roadmap/roadmap.service.js';
@@ -215,28 +215,88 @@ export class ProfileService {
     return result;
   }
 
-  static async importLinkedIn(userId: string, payload: any) {
-    const data = await importLinkedInData(payload);
-    await supabaseAdmin.from('profiles').update({
-      linkedin_url: data.linkedinUrl,
-      bio: data.summary ?? undefined,
-      updated_at: new Date().toISOString(),
-    }).eq('id', userId);
+  static async importLinkedIn(userId: string, body: {
+    linkedinUrl: string;
+    targetRole?: string;
+  }) {
+    const { linkedinUrl, targetRole = 'Full Stack Developer' } = body;
 
-    if (data.skills.length) {
-      await supabaseAdmin.from('user_skills').upsert(
-        data.skills.map((skill) => ({
-          user_id: userId,
-          skill_name: skill,
-          proficiency_level: 60,
-          verified: false,
-          proof_type: 'self_declared',
-        })),
-        { onConflict: 'user_id,skill_name' },
-      );
+    const linkedInData = await scrapeLinkedInPublicProfile(linkedinUrl);
+    const enriched = await enrichProfileWithAI(linkedInData ?? {}, targetRole);
+
+    const profileUpdate: Record<string, unknown> = {
+      linkedin_url: linkedinUrl,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (linkedInData?.name) profileUpdate.full_name = linkedInData.name;
+    if (linkedInData?.location) profileUpdate.location = linkedInData.location;
+    if (linkedInData?.headline) profileUpdate.bio = linkedInData.headline;
+    if (linkedInData?.education?.[0]) {
+      const education = linkedInData.education[0];
+      profileUpdate.college_name = education.institution;
+      profileUpdate.degree = [education.degree, education.field].filter(Boolean).join(' ');
+      profileUpdate.graduation_year = parseInt(education.year, 10) || new Date().getFullYear() + 1;
     }
 
-    return data;
+    const { error: profileError } = await supabaseAdmin
+      .from('profiles')
+      .update(profileUpdate)
+      .eq('id', userId);
+    if (profileError) throw new AppError(profileError.message, 400);
+
+    const linkedInSkills = linkedInData?.skills || [];
+    const allSkills = [
+      ...linkedInSkills.map((skill, i) => ({
+        user_id: userId,
+        skill_name: skill,
+        proficiency_level: Math.max(60, 85 - i * 2),
+        verified: false,
+        proof_type: 'self_declared',
+        last_updated: new Date().toISOString(),
+      })),
+      ...enriched.predictedSkills
+        .filter((predictedSkill) => !linkedInSkills.some((skill) => skill.toLowerCase() === predictedSkill.skill_name.toLowerCase()))
+        .map((predictedSkill) => ({
+          user_id: userId,
+          skill_name: predictedSkill.skill_name,
+          proficiency_level: predictedSkill.proficiency_level,
+          verified: false,
+          proof_type: 'self_declared',
+          last_updated: new Date().toISOString(),
+        })),
+    ];
+
+    if (allSkills.length > 0) {
+      const { error: skillsError } = await supabaseAdmin
+        .from('user_skills')
+        .upsert(allSkills, { onConflict: 'user_id,skill_name', ignoreDuplicates: false });
+      if (skillsError) throw new AppError(skillsError.message, 400);
+    }
+
+    if (linkedInData?.certifications?.length) {
+      const certs = linkedInData.certifications.map((cert) => ({
+        user_id: userId,
+        title: cert.name,
+        issuer: cert.issuer,
+        issue_date: cert.date,
+        credential_url: null,
+        verified: false,
+      }));
+      const { error: certError } = await supabaseAdmin
+        .from('certificates')
+        .upsert(certs, { onConflict: 'user_id,title', ignoreDuplicates: true });
+      if (certError) throw new AppError(certError.message, 400);
+    }
+
+    void enqueueSkillAnalysis(userId).catch(() => {});
+
+    return {
+      linkedInData,
+      enriched,
+      skillsAdded: allSkills.length,
+      certificationsAdded: linkedInData?.certifications?.length || 0,
+    };
   }
 
   static async uploadResume(userId: string, buffer: Buffer, fileName: string) {

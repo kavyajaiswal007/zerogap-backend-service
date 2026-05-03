@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { env } from '../../config/env.js';
 import { supabaseAdmin } from '../../config/supabase.js';
+import { getClaudeJson } from '../../utils/claude.util.js';
 import { AppError } from '../../utils/error.util.js';
 import { logger } from '../../utils/logger.util.js';
 
@@ -494,6 +495,44 @@ function sortMatches<T extends { fit_percentage: number; job_listings: JobListin
 }
 
 export class HireMeService {
+  private static async generateAIJobMatches(
+    targetRole: string,
+    skills: string[],
+    location: string = 'India',
+  ): Promise<any[]> {
+    const system = `You are a job market expert for India's tech industry.
+Generate realistic, current job listings. Return ONLY valid JSON array.`;
+
+    const prompt = `Generate exactly 12 realistic job listings for:
+Role: ${targetRole}
+Skills: ${skills.slice(0, 10).join(', ')}
+Location preference: ${location}
+
+Return JSON array of 12 job objects:
+[{
+  "id": "ai-job-1",
+  "title": "job title",
+  "company": "real Indian tech company",
+  "location": "Bengaluru / Mumbai / Hyderabad / Remote",
+  "salary_min": 600000,
+  "salary_max": 1200000,
+  "job_type": "full-time",
+  "experience_required": "0-2 years",
+  "skills_required": ["skill1", "skill2", "skill3", "skill4", "skill5"],
+  "description": "2 sentence job description",
+  "apply_url": "https://www.linkedin.com/jobs/search/?keywords=${encodeURIComponent(targetRole)}",
+  "posted_date": "2026-04-28",
+  "fit_percentage": 78,
+  "match_reason": "why this is a good fit",
+  "company_size": "1000-5000 employees",
+  "company_type": "Product / Service / Startup"
+}]
+
+Use REAL Indian tech companies: Razorpay, Zepto, CRED, Meesho, Swiggy, PhonePe, Groww, Atlassian India, Freshworks, BrowserStack, Postman, Druva, Chargebee, Zoho, Infosys Digital, Wipro Elite, TCS iON, HCL Tech, Myntra, Flipkart, Amazon India, Microsoft India, Google India.`;
+
+    return getClaudeJson<any[]>(system, prompt, []);
+  }
+
   static async recalculateMatches(userId: string) {
     return this.getTopMatches(userId, 50, true);
   }
@@ -519,10 +558,27 @@ export class HireMeService {
     if (skillsError) throw new AppError(skillsError.message, 500, 'DB_ERROR');
 
     const role = (targetRole as TargetRoleRow | null)?.job_title ?? DEFAULT_ROLE;
-    const jobs = await getOrFetchJobs(role, forceRefresh);
-    const skillNames = new Set(
-      ((userSkills ?? []) as UserSkillRow[]).map((skill) => skill.skill_name.toLowerCase()),
-    );
+    const userSkillRows = (userSkills ?? []) as UserSkillRow[];
+    const userSkillList = userSkillRows.map((skill) => skill.skill_name).filter(Boolean);
+    let jobs = await getOrFetchJobs(role, forceRefresh);
+    if (jobs.length < 10) {
+      const aiJobs = await HireMeService.generateAIJobMatches(
+        role,
+        userSkillList.length ? userSkillList : defaultSkillsForRole(role),
+        'India',
+      );
+      const normalizedAIJobs = aiJobs.map((job, index) => normalizeJobListing({
+        ...job,
+        id: undefined,
+        external_id: job.id ?? `ai-${role}-${index + 1}`,
+        posted_at: job.posted_date,
+        salary_lpa_min: positiveNumber(job.salary_min) ? Number(job.salary_min) / 100000 : null,
+        salary_lpa_max: positiveNumber(job.salary_max) ? Number(job.salary_max) / 100000 : null,
+        source: 'ai_generated',
+      }, role));
+      jobs = Array.from(new Map([...jobs, ...normalizedAIJobs].map((job) => [job.external_id, job])).values()).slice(0, 15);
+    }
+    const skillNames = new Set(userSkillRows.map((skill) => skill.skill_name.toLowerCase()));
 
     const candidates = jobs.map((job) => {
       const required = job.skills_required ?? [];
@@ -603,7 +659,23 @@ export class HireMeService {
       };
     });
 
-    return sortMatches(normalizedMatches).slice(0, limit);
+    const ephemeralMatches = candidates
+      .filter((match) => !match.job.id)
+      .map((match) => ({
+        id: `job-${match.job.external_id}`,
+        user_id: userId,
+        job_listing_id: match.job.external_id,
+        fit_percentage: match.fit_percentage,
+        missing_skills: match.missing_skills,
+        next_steps: match.next_steps,
+        match_reason: match.match_reason,
+        saved: false,
+        applied: false,
+        created_at: new Date().toISOString(),
+        job_listings: match.job,
+      }));
+
+    return sortMatches([...normalizedMatches, ...ephemeralMatches]).slice(0, limit);
   }
 
   static async getMatch(userId: string, jobId: string) {
